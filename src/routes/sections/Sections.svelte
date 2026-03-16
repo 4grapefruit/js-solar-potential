@@ -36,14 +36,14 @@
   export let showHeatmap = true;
 
   // User settings
-  export let monthlyAverageEnergyBillInput = 300;
+  export let yearlyAverageEnergyBillInput = 3200;
   export let panelCapacityWattsInput = 250;
-  export let energyCostPerKwhInput = 0.31;
+  export let energyCostPerKwhInput = 0.29;
   export let dcToAcDerateInput = 0.85;
 
   // Find the config that covers the yearly energy consumption.
   let yearlyKwhEnergyConsumption: number;
-  $: yearlyKwhEnergyConsumption = (monthlyAverageEnergyBillInput / energyCostPerKwhInput) * 12;
+  $: yearlyKwhEnergyConsumption = yearlyAverageEnergyBillInput / energyCostPerKwhInput;
 
   export let configId: number | undefined = undefined;
   $: if (configId === undefined && buildingInsights) {
@@ -89,7 +89,7 @@
     <SolarPotentialSection
       bind:expandedSection
       bind:configId
-      bind:monthlyAverageEnergyBillInput
+      bind:monthlyAverageEnergyBillInput={yearlyAverageEnergyBillInput}
       bind:energyCostPerKwhInput
       bind:panelCapacityWattsInput
       bind:dcToAcDerateInput

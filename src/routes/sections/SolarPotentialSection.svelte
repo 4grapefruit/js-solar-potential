@@ -56,7 +56,7 @@
 
   // Basic settings
   let monthlyAverageEnergyBill: number = 300;
-  let energyCostPerKwh = 0.31;
+  let energyCostPerKwh = 0.29;
   let panelCapacityWatts = 400;
   let solarIncentives: number = 7000;
   let installationCostPerWatt: number = 4.0;
@@ -73,8 +73,7 @@
   let installationCostTotal: number = installationCostPerWatt * installationSizeKw * 1000;
 
   // Energy consumption
-  let monthlyKwhEnergyConsumption: number = monthlyAverageEnergyBill / energyCostPerKwh;
-  let yearlyKwhEnergyConsumption: number = monthlyKwhEnergyConsumption * 12;
+  let yearlyKwhEnergyConsumption: number = monthlyAverageEnergyBill / energyCostPerKwh;
 
   // Energy produced for installation life span
   let initialAcKwhPerYear: number = yearlyEnergyDcKwh * dcToAcDerate;
@@ -115,8 +114,7 @@
   $: if (solarPanelConfigs[configId]) {
     installationSizeKw = (solarPanelConfigs[configId].panelsCount * panelCapacityWattsInput) / 1000;
   }
-  $: monthlyKwhEnergyConsumption = monthlyAverageEnergyBillInput / energyCostPerKwhInput;
-  $: yearlyKwhEnergyConsumption = monthlyKwhEnergyConsumption * 12;
+  $: yearlyKwhEnergyConsumption = monthlyAverageEnergyBillInput / energyCostPerKwhInput;
   $: if (solarPanelConfigs[configId]) {
     initialAcKwhPerYear =
       solarPanelConfigs[configId].yearlyEnergyDcKwh * panelCapacityRatio * dcToAcDerateInput;
@@ -134,7 +132,7 @@
   $: totalCostWithSolar = installationCostTotal + remainingLifetimeUtilityBill - solarIncentives;
   $: yearlyCostWithoutSolar = [...Array(installationLifeSpan).keys()].map(
     (year) =>
-      (monthlyAverageEnergyBillInput * 12 * costIncreaseFactor ** year) / discountRate ** year,
+      (monthlyAverageEnergyBillInput * costIncreaseFactor ** year) / discountRate ** year,
   );
   $: totalCostWithoutSolar = yearlyCostWithoutSolar.reduce((x, y) => x + y, 0);
   $: savings = totalCostWithoutSolar - totalCostWithSolar;
@@ -188,8 +186,7 @@
   );
 
   function updateConfig() {
-    monthlyKwhEnergyConsumption = monthlyAverageEnergyBillInput / energyCostPerKwhInput;
-    yearlyKwhEnergyConsumption = monthlyKwhEnergyConsumption * 12;
+    yearlyKwhEnergyConsumption = monthlyAverageEnergyBillInput / energyCostPerKwhInput;
     panelCapacityRatio = panelCapacityWattsInput / defaultPanelCapacityWatts;
     configId = findSolarConfig(
       solarPanelConfigs,

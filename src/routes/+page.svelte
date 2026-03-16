@@ -44,22 +44,27 @@
   let configId: number | undefined;
   let showPanels = true;
   let showHeatmap = true;
-  let monthlyAverageEnergyBillInput = 300;
+  let yearlyAverageEnergyBillInput = 3200;
   let panelCapacityWattsInput = 250;
-  let energyCostPerKwhInput = 0.31;
+  let energyCostPerKwhInput = 0.29;
   let dcToAcDerateInput = 0.85;
 
   // ── UI toggles ────────────────────────────────────────────────────────────
   let batteryStorage = false;
   let electricVehicle = false;
+  let showAssumptions = false;
 
-  // ── Financial constants ───────────────────────────────────────────────────
-  const installationCostPerWatt = 4.0;
-  const solarIncentives = 7000;
-  const installationLifeSpan = 20;
+  // ── Financial constants (Schweiz) ─────────────────────────────────────────
+  // Installationskosten: CHF 2.80/W (CH-Durchschnitt Wohngebäude)
+  const installationCostPerWatt = 2.8;
+  // Laufzeit: 25 Jahre (CH-Standard, Garantien meist 25–30 Jahre)
+  const installationLifeSpan = 25;
+  // Degradation: 0.5%/Jahr (Herstellerstandard)
   const efficiencyDepreciationFactor = 0.995;
-  const costIncreaseFactor = 1.022;
-  const discountRate = 1.04;
+  // Strompreissteigerung: 4%/Jahr (CH lag 2021–2024 bei 3–6%)
+  const costIncreaseFactor = 1.04;
+  // Diskontrate: 2% (CH-Kapitalmarkt / Hypothekenzinsen)
+  const discountRate = 1.02;
 
   // ── Reactive computations ─────────────────────────────────────────────────
   $: solarPanelConfigs = buildingInsights?.solarPotential?.solarPanelConfigs ?? [];
@@ -69,7 +74,9 @@
   $: panelCapacityRatio = panelCapacityWattsInput / defaultPanelCapacityWatts;
   $: installationSizeKw = ((panelConfig?.panelsCount ?? 0) * panelCapacityWattsInput) / 1000;
   $: installationCostTotal = installationCostPerWatt * installationSizeKw * 1000;
-  $: yearlyKwhEnergyConsumption = (monthlyAverageEnergyBillInput / energyCostPerKwhInput) * 12;
+  // EIV (Einmalvergütung): CHF 390/kWp für Kleinanlagen ≤ 100 kWp
+  $: solarIncentives = Math.min(installationSizeKw, 100) * 390;
+  $: yearlyKwhEnergyConsumption = yearlyAverageEnergyBillInput / energyCostPerKwhInput;
   $: initialAcKwhPerYear =
     (panelConfig?.yearlyEnergyDcKwh ?? 0) * panelCapacityRatio * dcToAcDerateInput;
   $: energyCoveredPct =
@@ -100,7 +107,7 @@
       return [...Array(installationLifeSpan).keys()].map(
         (y) =>
           (acc +=
-            (monthlyAverageEnergyBillInput * 12 * costIncreaseFactor ** y) / discountRate ** y),
+            (yearlyAverageEnergyBillInput * costIncreaseFactor ** y) / discountRate ** y),
       );
     })();
     breakEvenYear = cumWithSolar.findIndex((c, i) => c <= cumWithoutSolar[i]);
@@ -131,18 +138,14 @@
     });
 
     const autocomplete = new placesLibrary.Autocomplete(heroInputElement, {
-      fields: ['formatted_address', 'geometry', 'name'],
+      fields: ['geometry'],
     });
     autocomplete.addListener('place_changed', () => {
       const place = autocomplete.getPlace();
-      if (!place.geometry?.location) {
-        heroInputElement.value = '';
-        return;
-      }
+      if (!place.geometry?.location) return;
       location = place.geometry.location;
       map.setCenter(location);
       map.setZoom(zoom);
-      showHero = false;
     });
   });
 
@@ -152,12 +155,16 @@
 
   function useCurrentLocation() {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition((pos) => {
+    navigator.geolocation.getCurrentPosition(async (pos) => {
       const latLng = new google.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
       location = latLng;
       map.setCenter(latLng);
       map.setZoom(zoom);
-      showHero = false;
+      const geocoder = new google.maps.Geocoder();
+      const result = await geocoder.geocode({ location: latLng });
+      if (result.results[0]) {
+        heroInputElement.value = result.results[0].formatted_address;
+      }
     });
   }
 
@@ -184,7 +191,7 @@
       bind:configId
       bind:showPanels
       bind:showHeatmap
-      bind:monthlyAverageEnergyBillInput
+      bind:yearlyAverageEnergyBillInput
       bind:energyCostPerKwhInput
       bind:panelCapacityWattsInput
       bind:dcToAcDerateInput
@@ -440,6 +447,55 @@
                 <span class="font-switzer text-white text-base">Jahre</span>
               </div>
             </div>
+
+            <!-- Berechnungsgrundlagen -->
+            <div class="border border-[#e0e0e0] rounded-[10px] overflow-hidden">
+              <button
+                on:click={() => (showAssumptions = !showAssumptions)}
+                class="w-full flex items-center justify-between px-3 py-2.5 bg-white hover:bg-[#f7f7f7] transition-colors"
+              >
+                <div class="flex items-center gap-2">
+                  <svg class="w-[13px] h-[13px] text-[#8C8C8C]" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                  </svg>
+                  <span class="font-switzer text-[#8C8C8C] text-[11px] font-semibold tracking-[-0.22px]">Berechnungsgrundlagen (CH)</span>
+                </div>
+                <svg
+                  class="w-[13px] h-[13px] text-[#8C8C8C] transition-transform {showAssumptions ? 'rotate-180' : ''}"
+                  viewBox="0 0 24 24" fill="currentColor"
+                >
+                  <path d="M7 10l5 5 5-5z"/>
+                </svg>
+              </button>
+              {#if showAssumptions}
+                <div class="px-3 pb-3 pt-1 bg-[#fafafa] flex flex-col gap-1.5">
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px]">Installationskosten</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">CHF {installationCostPerWatt.toFixed(2)} / Watt</span>
+                  </div>
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px]">EIV (Einmalvergütung)</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">CHF 390 / kWp</span>
+                  </div>
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px]">Strompreissteigerung</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">{((costIncreaseFactor - 1) * 100).toFixed(0)}% / Jahr</span>
+                  </div>
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px]">Diskontrate</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">{((discountRate - 1) * 100).toFixed(0)}% / Jahr</span>
+                  </div>
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px]">Panel-Degradation</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">{((1 - efficiencyDepreciationFactor) * 100).toFixed(1)}% / Jahr</span>
+                  </div>
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px]">DC→AC Wirkungsgrad</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">{(dcToAcDerateInput * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+              {/if}
+            </div>
           </div>
         {:else}
           <!-- Loading -->
@@ -488,7 +544,8 @@
                   <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h7v7H3zm0 11h7v7H3zm11-11h7v7h-7zm0 11h7v7h-7z"/></svg>
                   <span class="font-switzer text-[#030303] text-xs font-semibold tracking-[-0.24px] flex-1">Anzahl Panels</span>
                   <div class="input-badge">
-                    <span class="font-switzer text-[#2D2B2B] text-base tracking-[-0.32px] flex-1">{panelConfig?.panelsCount ?? '—'} Panels</span>
+                    <span class="font-switzer text-[#2D2B2B] text-sm font-semibold tracking-[-0.28px] flex-1">{panelConfig?.panelsCount ?? '—'}</span>
+                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium ml-1 shrink-0">Panels</span>
                   </div>
                 </div>
                 <div class="flex flex-col gap-2">
@@ -507,46 +564,48 @@
               </div>
             {/if}
 
-            <!-- Monthly energy bill -->
+            <!-- Stromkosten (kombiniert) -->
             <div class="flex flex-col gap-3">
-              <div class="flex items-center gap-2">
-                <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/></svg>
-                <span class="font-switzer text-[#030303] text-xs font-semibold tracking-[-0.24px] leading-[16px] flex-1">Ø Monatliche<br/>Stromrechnung</span>
-                <div class="input-badge">
-                  <input
-                    type="number"
-                    bind:value={monthlyAverageEnergyBillInput}
-                    class="font-switzer text-[#2D2B2B] text-base tracking-[-0.32px] flex-1 w-0 min-w-0 bg-transparent outline-none"
-                  />
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2">
+                  <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/></svg>
+                  <span class="font-switzer text-[#030303] text-xs font-semibold tracking-[-0.24px]">Stromkosten</span>
+                </div>
+                <div class="flex gap-2">
+                  <div class="input-badge flex-1">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0">CHF</span>
+                    <input
+                      type="number"
+                      bind:value={yearlyAverageEnergyBillInput}
+                      class="font-switzer text-[#2D2B2B] text-sm font-semibold tracking-[-0.28px] w-0 flex-1 bg-transparent outline-none text-center"
+                    />
+                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0">/Jahr</span>
+                  </div>
+                  <div class="input-badge flex-1">
+                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0">CHF</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      bind:value={energyCostPerKwhInput}
+                      class="font-switzer text-[#2D2B2B] text-sm font-semibold tracking-[-0.28px] w-0 flex-1 bg-transparent outline-none text-center"
+                    />
+                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0">/kWh</span>
+                  </div>
                 </div>
               </div>
               <div class="flex flex-col gap-2">
                 <input
                   type="range"
-                  min="50"
-                  max="1000"
-                  step="10"
-                  bind:value={monthlyAverageEnergyBillInput}
+                  min="500"
+                  max="6000"
+                  step="100"
+                  bind:value={yearlyAverageEnergyBillInput}
                   class="slider w-full"
-                  style="--pct: {((monthlyAverageEnergyBillInput - 50) / 950) * 100}%"
+                  style="--pct: {((yearlyAverageEnergyBillInput - 500) / 5500) * 100}%"
                 />
                 <div class="flex justify-between font-switzer text-[#8C8C8C] text-[12px] tracking-[-0.24px]">
-                  <span>min</span><span>max</span>
+                  <span>CHF 500</span><span>CHF 6'000</span>
                 </div>
-              </div>
-            </div>
-
-            <!-- Energy cost per kWh -->
-            <div class="flex items-center gap-2">
-              <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z"/></svg>
-              <span class="font-switzer text-[#030303] text-xs font-semibold tracking-[-0.24px] leading-[16px] flex-1">Energiekosten<br/>pro kWh</span>
-              <div class="input-badge">
-                <input
-                  type="number"
-                  step="0.01"
-                  bind:value={energyCostPerKwhInput}
-                  class="font-switzer text-[#8C8C8C] text-base tracking-[-0.32px] flex-1 w-0 min-w-0 bg-transparent outline-none"
-                />
               </div>
             </div>
 
@@ -800,17 +859,18 @@
     background-color: #ffffff;
   }
 
-  /* Input badge — white pill, 139×38px, 16px text */
+  /* Input badge — white pill with subtle border */
   .input-badge {
     color-scheme: light;
     background-color: #ffffff;
+    border: 1px solid #e8e8e8;
     border-radius: 30px;
-    padding: 5px 5px 5px 10px;
-    height: 38px;
-    width: 139px;
+    padding: 5px 10px;
+    height: 36px;
     display: flex;
     align-items: center;
     flex-shrink: 0;
+    gap: 3px;
   }
 
   /* EV dark card */
