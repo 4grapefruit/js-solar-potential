@@ -18,7 +18,13 @@
 export default {
   content: ['./src/**/*.{html,js,svelte,ts}'],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        display: ['"Plus Jakarta Sans"', 'sans-serif'],
+        switzer: ['Switzer', 'sans-serif'],
+        handwritten: ['Caveat', 'cursive'],
+      },
+    },
   },
   plugins: [],
 };

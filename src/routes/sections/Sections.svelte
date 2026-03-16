@@ -28,23 +28,24 @@
   export let geometryLibrary: google.maps.GeometryLibrary;
   export let googleMapsApiKey: string;
 
-  let buildingInsights: BuildingInsightsResponse | undefined;
+  export let buildingInsights: BuildingInsightsResponse | undefined = undefined;
 
   // State
   let expandedSection: string = '';
-  let showPanels = true;
+  export let showPanels = true;
+  export let showHeatmap = true;
 
   // User settings
-  let monthlyAverageEnergyBillInput = 300;
-  let panelCapacityWattsInput = 250;
-  let energyCostPerKwhInput = 0.31;
-  let dcToAcDerateInput = 0.85;
+  export let monthlyAverageEnergyBillInput = 300;
+  export let panelCapacityWattsInput = 250;
+  export let energyCostPerKwhInput = 0.31;
+  export let dcToAcDerateInput = 0.85;
 
   // Find the config that covers the yearly energy consumption.
   let yearlyKwhEnergyConsumption: number;
   $: yearlyKwhEnergyConsumption = (monthlyAverageEnergyBillInput / energyCostPerKwhInput) * 12;
 
-  let configId: number | undefined;
+  export let configId: number | undefined = undefined;
   $: if (configId === undefined && buildingInsights) {
     const defaultPanelCapacity = buildingInsights.solarPotential.panelCapacityWatts;
     const panelCapacityRatio = panelCapacityWattsInput / defaultPanelCapacity;
@@ -56,7 +57,6 @@
     );
   }
 </script>
-
 <div class="flex flex-col rounded-md shadow-md">
   {#if geometryLibrary && map}
     <BuildingInsightsSection
@@ -64,6 +64,7 @@
       bind:buildingInsights
       bind:configId
       bind:showPanels
+      bind:showHeatmap
       bind:panelCapacityWatts={panelCapacityWattsInput}
       {googleMapsApiKey}
       {geometryLibrary}
@@ -77,6 +78,7 @@
     <DataLayersSection
       bind:expandedSection
       bind:showPanels
+      bind:showHeatmap
       {googleMapsApiKey}
       {buildingInsights}
       {geometryLibrary}

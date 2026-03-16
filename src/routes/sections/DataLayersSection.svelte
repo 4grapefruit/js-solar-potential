@@ -38,6 +38,7 @@
 
   export let expandedSection: string;
   export let showPanels = true;
+  export let showHeatmap = true;
 
   export let googleMapsApiKey: string;
   export let buildingInsights: BuildingInsightsResponse;
@@ -150,9 +151,11 @@
   }
 
   $: if (layer?.id == 'monthlyFlux') {
-    overlays.map((overlay, i) => overlay.setMap(i == month ? map : null));
+    overlays.map((overlay, i) => overlay.setMap(showHeatmap && i == month ? map : null));
   } else if (layer?.id == 'hourlyShade') {
-    overlays.map((overlay, i) => overlay.setMap(i == hour ? map : null));
+    overlays.map((overlay, i) => overlay.setMap(showHeatmap && i == hour ? map : null));
+  } else if (overlays.length > 0) {
+    overlays[0].setMap(showHeatmap ? map : null);
   }
 
   function onSliderChange(event: Event) {

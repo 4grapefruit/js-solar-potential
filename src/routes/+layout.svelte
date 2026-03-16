@@ -48,10 +48,15 @@
 </script>
 
 <svelte:head>
-  <title>Solar API demo</title>
-  <meta name="description" content="Solar API demo" />
+  <title>Solarrechner – Meyer Group</title>
+  <meta name="description" content="Entdecke das Solarpotenzial deines Dachs" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Caveat:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://api.fontshare.com" />
+  <link href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap" rel="stylesheet" />
 </svelte:head>
 
-<main class="surface on-surface-text body-medium flex flex-col w-screen h-screen">
+<main class="surface on-surface-text body-medium flex flex-col w-screen h-screen relative overflow-hidden">
   <slot />
 </main>

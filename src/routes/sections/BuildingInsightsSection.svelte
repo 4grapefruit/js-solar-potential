@@ -17,7 +17,10 @@
 <script lang="ts">
   /* global google */
 
+  import { onMount } from 'svelte';
+
   import type { MdDialog } from '@material/web/dialog/dialog';
+  import type { MdSlider } from '@material/web/slider/slider';
   import Expandable from '../components/Expandable.svelte';
   import {
     type BuildingInsightsResponse,
@@ -44,6 +47,7 @@
   export let configId: number | undefined;
   export let panelCapacityWatts: number;
   export let showPanels: boolean;
+  export let showHeatmap: boolean;
 
   export let googleMapsApiKey: string;
   export let geometryLibrary: google.maps.GeometryLibrary;
@@ -100,20 +104,22 @@
     const palette = createPalette(panelsPalette).map(rgbToColor);
     const minEnergy = solarPotential.solarPanels.slice(-1)[0].yearlyEnergyDcKwh;
     const maxEnergy = solarPotential.solarPanels[0].yearlyEnergyDcKwh;
+
+    const [w, h] = [solarPotential.panelWidthMeters / 2, solarPotential.panelHeightMeters / 2];
+    const panelCorners = [
+      { x: +w, y: +h },
+      { x: +w, y: -h },
+      { x: -w, y: -h },
+      { x: -w, y: +h },
+      { x: +w, y: +h },
+    ];
+
     solarPanels = solarPotential.solarPanels.map((panel) => {
-      const [w, h] = [solarPotential.panelWidthMeters / 2, solarPotential.panelHeightMeters / 2];
-      const points = [
-        { x: +w, y: +h }, // top right
-        { x: +w, y: -h }, // bottom right
-        { x: -w, y: -h }, // bottom left
-        { x: -w, y: +h }, // top left
-        { x: +w, y: +h }, //  top right
-      ];
-      const orientation = panel.orientation == 'PORTRAIT' ? 90 : 0;
-      const azimuth = solarPotential.roofSegmentStats[panel.segmentIndex].azimuthDegrees;
       const colorIndex = Math.round(normalize(panel.yearlyEnergyDcKwh, maxEnergy, minEnergy) * 255);
+      const orientation = panel.orientation === 'PORTRAIT' ? 90 : 0;
+      const azimuth = solarPotential.roofSegmentStats[panel.segmentIndex].azimuthDegrees;
       return new google.maps.Polygon({
-        paths: points.map(({ x, y }) =>
+        paths: panelCorners.map(({ x, y }) =>
           geometryLibrary.spherical.computeOffset(
             { lat: panel.center.latitude, lng: panel.center.longitude },
             Math.sqrt(x * x + y * y),
@@ -187,6 +193,10 @@
       return;
     }
 
+    if (!buildingInsights) {
+      return;
+    }
+
     if (!layer) {
       const center = buildingInsights.center;
       const ne = buildingInsights.boundingBox.ne;
@@ -231,9 +241,11 @@
   }
 
   $: if (layer?.id == 'monthlyFlux') {
-    overlays.map((overlay, i) => overlay.setMap(i == month ? map : null));
+    overlays.map((overlay, i) => overlay.setMap(showHeatmap && i == month ? map : null));
   } else if (layer?.id == 'hourlyShade') {
-    overlays.map((overlay, i) => overlay.setMap(i == hour ? map : null));
+    overlays.map((overlay, i) => overlay.setMap(showHeatmap && i == hour ? map : null));
+  } else if (overlays.length > 0) {
+    overlays[0].setMap(showHeatmap ? map : null);
   }
 
   function onSliderChange(event: Event) {
@@ -318,17 +330,17 @@
         <b>{title}</b> Gibt Auskunft über Standort, Dachfläche und Eignung für Solaranlagen.
       </span>
 
-      {#if layer.palette}
+      {#if layer?.palette}
         <div>
           <div
             class="h-2 outline rounded-sm"
-            style={`background: linear-gradient(to right, ${layer.palette.colors.map(
+            style={`background: linear-gradient(to right, ${layer?.palette?.colors.map(
               (hex) => '#' + hex,
             )})`}
           />
           <div class="flex justify-between pt-1 label-small">
-            <span>{layer.palette.min}</span>
-            <span>{layer.palette.max}</span>
+            <span>{layer?.palette?.min}</span>
+            <span>{layer?.palette?.max}</span>
           </div>
         </div>
       {/if}

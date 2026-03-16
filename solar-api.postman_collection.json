@@ -1,0 +1,60 @@
+{
+  "info": {
+    "name": "Google Solar API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "apiKey",
+      "value": "AIzaSyD3EJWwCzvvqbu48YwbNCNvVneHB-87XAQ"
+    },
+    {
+      "key": "lat",
+      "value": "47.37689"
+    },
+    {
+      "key": "lng",
+      "value": "8.54169"
+    }
+  ],
+  "item": [
+    {
+      "name": "Building Insights (findClosest)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude={{lat}}&location.longitude={{lng}}&key={{apiKey}}",
+          "protocol": "https",
+          "host": ["solar", "googleapis", "com"],
+          "path": ["v1", "buildingInsights:findClosest"],
+          "query": [
+            { "key": "location.latitude",  "value": "{{lat}}" },
+            { "key": "location.longitude", "value": "{{lng}}" },
+            { "key": "key",                "value": "{{apiKey}}" }
+          ]
+        },
+        "description": "Returns building insights + solarPotential with roofSegmentStats and solarPanels.\nChange lat/lng to the building you want to inspect."
+      }
+    },
+    {
+      "name": "Data Layers (getDataLayers)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "https://solar.googleapis.com/v1/dataLayers:get?location.latitude={{lat}}&location.longitude={{lng}}&radius_meters=50&required_quality=LOW&key={{apiKey}}",
+          "protocol": "https",
+          "host": ["solar", "googleapis", "com"],
+          "path": ["v1", "dataLayers:get"],
+          "query": [
+            { "key": "location.latitude",  "value": "{{lat}}" },
+            { "key": "location.longitude", "value": "{{lng}}" },
+            { "key": "radius_meters",      "value": "50" },
+            { "key": "required_quality",   "value": "LOW" },
+            { "key": "key",                "value": "{{apiKey}}" }
+          ]
+        },
+        "description": "Returns URLs for GeoTIFF data layers (DSM, RGB, annualFlux, etc.)"
+      }
+    }
+  ]
+}
