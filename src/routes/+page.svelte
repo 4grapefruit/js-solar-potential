@@ -53,6 +53,11 @@
   let batteryStorage = false;
   let electricVehicle = false;
   let showAssumptions = false;
+  let playAnimation = false;
+  let heatmapMonth = 0;
+  let heatmapLayerId = 'monthlyFlux';
+
+  const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
   // ── Financial constants (Schweiz) ─────────────────────────────────────────
   // Installationskosten: CHF 2.80/W (CH-Durchschnitt Wohngebäude)
@@ -191,6 +196,9 @@
       bind:configId
       bind:showPanels
       bind:showHeatmap
+      bind:playAnimation
+      bind:heatmapMonth
+      bind:heatmapLayerId
       bind:yearlyAverageEnergyBillInput
       bind:energyCostPerKwhInput
       bind:panelCapacityWattsInput
@@ -378,7 +386,7 @@
     </nav>
 
     <!-- Middle: panels over map -->
-    <div class="flex-1 flex items-end justify-between min-h-0 gap-2.5">
+    <div class="flex-1 flex items-end justify-between min-h-0 gap-2.5 pb-4">
 
       <!-- LEFT: Analysis panel + map controls -->
       <div class="flex flex-col h-full justify-between gap-3">
@@ -710,6 +718,62 @@
         </button>
       </div>
     </div>
+
+    <!-- Heatmap player bar -->
+    {#if showHeatmap && heatmapLayerId === 'monthlyFlux'}
+      <div class="absolute bottom-24 left-[340px] right-[340px] flex justify-center pointer-events-none">
+      <div class="pointer-events-auto">
+        <div class="card rounded-full flex items-center gap-4 px-5 py-3">
+          <!-- Prev -->
+          <button
+            on:click={() => { heatmapMonth = (heatmapMonth + 11) % 12; playAnimation = false; }}
+            class="w-7 h-7 flex items-center justify-center text-[#8C8C8C] hover:text-[#030303] transition-colors"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          </button>
+          <!-- Play/Pause -->
+          <button
+            on:click={() => (playAnimation = !playAnimation)}
+            class="w-9 h-9 rounded-full bg-[#030303] flex items-center justify-center hover:bg-[#333] transition-colors shrink-0"
+          >
+            {#if playAnimation}
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="white"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            {:else}
+              <svg class="w-4 h-4 ml-0.5" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+            {/if}
+          </button>
+          <!-- Next -->
+          <button
+            on:click={() => { heatmapMonth = (heatmapMonth + 1) % 12; playAnimation = false; }}
+            class="w-7 h-7 flex items-center justify-center text-[#8C8C8C] hover:text-[#030303] transition-colors"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
+          <!-- Divider -->
+          <div class="w-px h-5 bg-[#e0e0e0]" />
+          <!-- Month name -->
+          <span class="font-switzer text-[#030303] text-sm font-semibold tracking-[-0.28px] w-[80px] text-center">{monthNames[heatmapMonth]}</span>
+          <!-- Divider -->
+          <div class="w-px h-5 bg-[#e0e0e0]" />
+          <!-- Slider -->
+          <div class="flex items-center gap-2 w-[180px]">
+            <span class="font-switzer text-[#8C8C8C] text-[11px] shrink-0">Jan</span>
+            <input
+              type="range"
+              min="0"
+              max="11"
+              step="1"
+              bind:value={heatmapMonth}
+              on:input={() => (playAnimation = false)}
+              class="slider flex-1"
+              style="--pct: {(heatmapMonth / 11) * 100}%"
+            />
+            <span class="font-switzer text-[#8C8C8C] text-[11px] shrink-0">Dez</span>
+          </div>
+        </div>
+      </div>
+      </div>
+    {/if}
 
     <!-- Progress steps -->
     <div class="card pointer-events-auto rounded-full flex items-stretch overflow-hidden shrink-0 w-full">

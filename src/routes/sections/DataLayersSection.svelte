@@ -80,9 +80,11 @@
   let layer: Layer | undefined;
   let imageryQuality: 'HIGH' | 'MEDIUM' | 'LOW';
 
-  let playAnimation = false;
+  export let playAnimation = false;
   let tick = 0;
-  let month = 0;
+  export let month = 0;
+  export let activeLayerId: LayerId | 'none' = 'monthlyFlux';
+  $: activeLayerId = layerId;
   let day = 14;
   let hour = 0;
 
@@ -149,6 +151,8 @@
       overlays[0].setMap(map);
     }
   }
+
+  $: if (!showHeatmap) playAnimation = false;
 
   $: if (layer?.id == 'monthlyFlux') {
     overlays.map((overlay, i) => overlay.setMap(showHeatmap && i == month ? map : null));

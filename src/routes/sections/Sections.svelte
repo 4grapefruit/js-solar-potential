@@ -34,6 +34,9 @@
   let expandedSection: string = '';
   export let showPanels = true;
   export let showHeatmap = true;
+  export let playAnimation = false;
+  export let heatmapMonth = 0;
+  export let heatmapLayerId: string = 'monthlyFlux';
 
   // User settings
   export let yearlyAverageEnergyBillInput = 3200;
@@ -79,6 +82,9 @@
       bind:expandedSection
       bind:showPanels
       bind:showHeatmap
+      bind:playAnimation
+      bind:month={heatmapMonth}
+      bind:activeLayerId={heatmapLayerId}
       {googleMapsApiKey}
       {buildingInsights}
       {geometryLibrary}
