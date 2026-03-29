@@ -23,6 +23,7 @@
   import { onMount } from 'svelte';
   import type { BuildingInsightsResponse } from './solar';
   import Sections from './sections/Sections.svelte';
+  import ResultsPage from './sections/ResultsPage.svelte';
 
   const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const zoom = 19;
@@ -53,6 +54,7 @@
   let batteryStorage = false;
   let electricVehicle = false;
   let showAssumptions = false;
+  let showPage3 = false;
   let playAnimation = false;
   let heatmapMonth = 0;
   let heatmapLayerId = 'monthlyFlux';
@@ -90,11 +92,13 @@
       : 0;
 
   let breakEvenYear = -1;
+  let cumWithSolar: number[] = [];
+  let cumWithoutSolar: number[] = [];
   $: {
     const yearlyProduction = [...Array(installationLifeSpan).keys()].map(
       (y) => initialAcKwhPerYear * efficiencyDepreciationFactor ** y,
     );
-    const cumWithSolar = (() => {
+    cumWithSolar = (() => {
       let acc = 0;
       return yearlyProduction.map((produced, i) => {
         const bill = Math.max(
@@ -107,7 +111,7 @@
         return (acc += i === 0 ? bill + installationCostTotal - solarIncentives : bill);
       });
     })();
-    const cumWithoutSolar = (() => {
+    cumWithoutSolar = (() => {
       let acc = 0;
       return [...Array(installationLifeSpan).keys()].map(
         (y) =>
@@ -117,6 +121,7 @@
     })();
     breakEvenYear = cumWithSolar.findIndex((c, i) => c <= cumWithoutSolar[i]);
   }
+  $: savings = cumWithoutSolar.length ? cumWithoutSolar[cumWithoutSolar.length - 1] - cumWithSolar[cumWithSolar.length - 1] : 0;
 
   // ── Init ──────────────────────────────────────────────────────────────────
   onMount(async () => {
@@ -695,7 +700,7 @@
         </div>
 
         <!-- CTA button -->
-        <button class="btn-primary font-switzer rounded-full flex items-center justify-between pl-[30px] pr-[5px] py-[5px] w-full shrink-0 h-[60px]">
+        <button on:click={() => (showPage3 = true)} class="btn-primary font-switzer rounded-full flex items-center justify-between pl-[30px] pr-[5px] py-[5px] w-full shrink-0 h-[60px]">
           <span class="btn-primary__text text-sm font-semibold leading-6 tracking-[-0.28px]">Analyse starten</span>
           <div class="btn-primary__icon rounded-full">
             <span class="arrow-out">
@@ -800,6 +805,24 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if showPage3}
+  <ResultsPage
+    {installationSizeKw}
+    {initialAcKwhPerYear}
+    {installationCostTotal}
+    {solarIncentives}
+    {energyCoveredPct}
+    {breakEvenYear}
+    {batteryStorage}
+    {cumWithSolar}
+    {cumWithoutSolar}
+    {installationLifeSpan}
+    {savings}
+    {yearlyKwhEnergyConsumption}
+    onClose={() => (showPage3 = false)}
+  />
 {/if}
 
 <style>
