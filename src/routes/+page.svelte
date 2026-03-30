@@ -411,7 +411,7 @@
                 </div>
                 <div class="flex items-end gap-1 mt-2">
                   <span class="font-switzer text-black text-base font-medium tracking-[-0.32px]">{fmt(initialAcKwhPerYear)}</span>
-                  <span class="font-switzer text-[#2D2B2B] text-[11px]">kWh/Jahr</span>
+                  <span class="font-switzer text-[#2D2B2B] text-[11px]">kWh / Jahr</span>
                 </div>
               </div>
               <!-- Installation Size -->
@@ -592,7 +592,7 @@
                       bind:value={yearlyAverageEnergyBillInput}
                       class="font-switzer text-[#2D2B2B] text-sm font-semibold tracking-[-0.28px] w-0 flex-1 bg-transparent outline-none text-center"
                     />
-                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0">/Jahr</span>
+                    <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0"> / Jahr</span>
                   </div>
                   <div class="input-badge flex-1">
                     <span class="font-switzer text-[#8C8C8C] text-[11px] font-medium shrink-0">CHF</span>
