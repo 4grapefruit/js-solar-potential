@@ -119,7 +119,7 @@
   $: avgMonthlySaving = monthlyData.reduce((s, d) => s + d.saving, 0) / 12;
 
   // ── Monthly chart dimensions ───────────────────────────────────────────────
-  const MW=300, MH=150, MP={t:4,r:0,b:14,l:0};
+  const MW=300, MH=110, MP={t:4,r:0,b:15,l:0};
   const mcH=MH-MP.t-MP.b;
   const mStep=MW/12, mBW=mStep*0.55;
   function mpx(i:number){return i*mStep+mStep/2-mBW/2;}
@@ -216,7 +216,7 @@
   // ── Semi-donut ────────────────────────────────────────────────────────────
   // Gauge goes left (9 o'clock) → top (12 o'clock) → right (3 o'clock)
   // In our coord system (0°=top, clockwise): left=270°, right=90°, through top
-  const DR=58, DRI=40, DCX=110, DCY=72;
+  const DR=58, DRI=36, DCX=110, DCY=72;
   const DSW = DR - DRI; // stroke width
   function polar(cx:number,cy:number,r:number,deg:number){
     const rad=(deg-90)*Math.PI/180;
@@ -260,7 +260,7 @@
   })();
   $: indepPct = localBattery ? Math.min(100, roofPct + 15) : roofPct;
   $: batCoverHours = localBattery ? Math.round(indepHours * 0.3) : 0;
-  const EW = 280, EH = 110, EP = { t: 8, r: 4, b: 18, l: 4 };
+  const EW = 460, EH = 140, EP = { t: 8, r: 12, b: 32, l: 12 };
   $: ecH = EH - EP.t - EP.b;
   $: hourlyBars = Array.from({ length: 24 }, (_, h) => {
     const dailySolar = initialAcKwhPerYear / 365;
@@ -279,7 +279,7 @@
     const y = EP.t + ecH - (b.cons / maxBarVal) * ecH;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
-  const barW = 8;
+  const barW = 14;
   function ex(h: number) { return EP.l + (h / 23) * (EW - EP.l - EP.r) - barW / 2; }
   let eHoverH: number | null = null;
   $: solarStartH  = hourlyBars.findIndex(b => b.prod > b.grid * 0.5);
@@ -974,7 +974,7 @@
     <div class="grid grid-cols-3 gap-4">
 
       <!-- ── Monatliche Einsparung: Mini bar chart ── -->
-      <div class="rounded-[16px] p-5 flex flex-col" style="background:white; border:1px solid #ede8e0; gap:12px;">
+      <div class="rounded-[16px] p-5 flex flex-col col-span-1" style="background:white; border:1px solid #ede8e0; gap:12px;">
         <!-- Header -->
         <div class="shrink-0">
           <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Monatliche Einsparung</p>
@@ -1003,7 +1003,7 @@
               opacity={active ? 1 : 0.3}
               style="transition:opacity 0.2s;"/>
             <!-- Month label -->
-            <text x={mpx(i)+mBW/2} y={MH-1} text-anchor="middle" font-size="8"
+            <text x={mpx(i)+mBW/2} y={MH-1} text-anchor="middle" font-size="10"
               fill={active ? '#999' : '#ddd'} font-family="Switzer,sans-serif"
               style="transition:fill 0.2s;">{d.label}</text>
           {/each}
@@ -1056,17 +1056,48 @@
       </div>
 
       <!-- ── Eigenverbrauch + Energieunabhängigkeit (combined) ── -->
-      <div class="rounded-[16px] p-5 flex flex-col gap-4" style="background:white; border:1px solid #ede8e0;">
-        <!-- Header -->
-        <div>
-          <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Eigenverbrauch & Unabhängigkeit</p>
-          <p class="font-switzer text-[12px] text-[#8C8C8C] mt-0.5">Ihr Strom vom Dach — wieviel & wann</p>
+      <div class="rounded-[16px] p-5 flex flex-col gap-4 col-span-2" style="background:white; border:1px solid #ede8e0;">
+        <!-- Header & Legend -->
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-3">
+              <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Eigenverbrauch & Unabhängigkeit</p>
+              {#if indepHours > 0}
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#0EA5E9]/20" style="background:rgba(14,165,233,0.12); box-shadow: 0 4px 6px -1px rgba(14,165,233,0.08);">
+                  <div class="w-2 h-2 rounded-full bg-[#0EA5E9]"></div>
+                  <p class="font-switzer font-bold text-[13px] text-[#0EA5E9] leading-none mt-[1px]">{indepHours}h / Tag unabhängig</p>
+                </div>
+              {/if}
+            </div>
+            <p class="font-switzer text-[12px] text-[#8C8C8C] mt-1.5">Ihr Strom vom Dach — wieviel & wann</p>
+          </div>
+          <!-- Legend Mini -->
+          <div class="flex items-center gap-3 mt-0.5">
+            <div class="flex items-center gap-1.5">
+              <div class="w-2.5 h-2.5 rounded-[3px]" style="background:#38BDF8;"></div>
+              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Solar</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <div class="w-2.5 h-2.5 rounded-[3px]" style="background:#B0A89E;"></div>
+              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Netz</span>
+            </div>
+            {#if localBattery}
+            <div class="flex items-center gap-1.5">
+              <div class="w-2.5 h-2.5 rounded-[3px]" style="background:#FBBF24;"></div>
+              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Batterie</span>
+            </div>
+            {/if}
+            <div class="flex items-center gap-1.5">
+              <svg width="14" height="6" viewBox="0 0 14 6"><line x1="0" y1="3" x2="14" y2="3" stroke="#F59E0B" stroke-width="2" stroke-dasharray="3 3"/></svg>
+              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Verbrauch</span>
+            </div>
+          </div>
         </div>
 
         <!-- Two-column: donut left, chart right -->
-        <div class="flex gap-4 items-start">
+        <div class="flex gap-8 items-start mt-2">
           <!-- Left: donut gauge -->
-          <div class="flex flex-col items-center gap-3 shrink-0" style="width:140px;">
+          <div class="flex flex-col items-center gap-4 shrink-0" style="width:160px;">
             <svg viewBox="0 0 220 76" class="w-full" style="overflow:visible; cursor:default;"
               on:mouseenter={() => donutHovered = true}
               on:mouseleave={() => donutHovered = false}>
@@ -1081,24 +1112,24 @@
                   filter={donutHovered ? 'url(#donutGlow)' : undefined}
                   style="transition:filter 0.25s ease;"/>
               {/if}
-              <text x={DCX} y={DCY - 12} text-anchor="middle" font-size="9" fill="#aaa" font-family="Switzer,sans-serif" letter-spacing="1">VOM DACH</text>
-              <text x={DCX} y={DCY + 16} text-anchor="middle" font-size="32" font-weight="700" fill="#030303" font-family="Switzer,sans-serif" letter-spacing="-1">{roofPct}%</text>
+              <text x={DCX} y={DCY - 14} text-anchor="middle" font-size="11" fill="#aaa" font-family="Switzer,sans-serif" letter-spacing="1">VOM DACH</text>
+              <text x={DCX} y={DCY + 18} text-anchor="middle" font-size="36" font-weight="700" fill="#030303" font-family="Switzer,sans-serif" letter-spacing="-1">{roofPct}%</text>
             </svg>
-            <!-- kWh stats -->
-            <div class="w-full flex flex-col gap-2">
-              <div class="flex items-center justify-between py-2 px-2.5 rounded-[9px]" style="background:#FEFCE8;">
-                <div class="flex items-center gap-1.5">
-                  <div class="w-2 h-2 rounded-full bg-[#FFE572] shrink-0"/>
-                  <span class="font-switzer text-[10px] text-[#92400E]">Solar</span>
+            <!-- Colored KPI Boxes (Mix aesthetics) -->
+            <div class="w-full flex flex-col gap-2.5 mt-2">
+              <div class="flex items-center justify-between py-2.5 px-3 rounded-[12px] border border-[#FDE047]/40" style="background:#FEFCE8;">
+                <div class="flex items-center gap-2">
+                  <div class="w-2.5 h-2.5 rounded-full bg-[#FFE572] shrink-0 border border-[#FDE047]/50"/>
+                  <span class="font-switzer font-semibold text-[12px] text-[#92400E]">Solar</span>
                 </div>
-                <span class="font-switzer font-semibold text-[11px] text-[#030303]">{fmt(solarUsed)} kWh</span>
+                <span class="font-switzer font-bold text-[14px] text-[#030303] tracking-[-0.2px]">{fmt(solarUsed)} <span class="text-[12px] font-medium text-[#92400E]">kWh</span></span>
               </div>
-              <div class="flex items-center justify-between py-2 px-2.5 rounded-[9px]" style="background:#F0F4FF;">
-                <div class="flex items-center gap-1.5">
-                  <div class="w-2 h-2 rounded-full bg-[#66A3FF] shrink-0"/>
-                  <span class="font-switzer text-[10px] text-[#1D4ED8]">Netz</span>
+              <div class="flex items-center justify-between py-2.5 px-3 rounded-[12px] border border-[#BFDBFE]/40" style="background:#F0F4FF;">
+                <div class="flex items-center gap-2">
+                  <div class="w-2.5 h-2.5 rounded-full bg-[#66A3FF] shrink-0 border border-[#3B82F6]/30"/>
+                  <span class="font-switzer font-semibold text-[12px] text-[#1D4ED8]">Netz</span>
                 </div>
-                <span class="font-switzer font-semibold text-[11px] text-[#030303]">{fmt(gridImport)} kWh</span>
+                <span class="font-switzer font-bold text-[14px] text-[#030303] tracking-[-0.2px]">{fmt(gridImport)} <span class="text-[12px] font-medium text-[#1D4ED8]">kWh</span></span>
               </div>
             </div>
           </div>
@@ -1143,29 +1174,52 @@
             <!-- Grey: grid import bar -->
             {#if gridH > 0.5}
               <rect x={x} y={EP.t + ecH - gridH} width={barW} height={gridH}
-                fill="url(#eGradGrid)" rx="2"
+                fill="url(#eGradGrid)" rx="3"
                 opacity={active ? 1 : 0.15} style="transition:opacity 0.15s;"/>
             {/if}
             <!-- Green: solar production bar -->
             {#if prodH > 0.5}
               <rect x={x} y={EP.t + ecH - prodH} width={barW} height={prodH}
-                fill="url(#eGradSolar)" rx="2"
+                fill="url(#eGradSolar)" rx="3"
                 opacity={active ? 1 : 0.15} style="transition:opacity 0.15s;"/>
             {/if}
             <!-- Yellow: battery bonus bar -->
             {#if batH > 0.5}
               <rect x={x} y={EP.t + ecH - prodH - batH} width={barW} height={batH}
-                fill="url(#eGradBat)" rx="2"
+                fill="url(#eGradBat)" rx="3"
                 opacity={active ? 1 : 0.15} style="transition:opacity 0.15s;"/>
             {/if}
             <!-- Hour label every 6h -->
             {#if b.h % 6 === 0}
-              <text x={x + barW/2} y={EH - 2} text-anchor="middle" font-size="7.5" fill="#C0BAB2" font-family="Switzer,sans-serif">{b.h}h</text>
+              <text x={x + barW/2} y={EH - 2} text-anchor="middle" font-size="11" fill="#C0BAB2" font-family="Switzer,sans-serif">{b.h}h</text>
             {/if}
           {/each}
 
-          <!-- Consumption curve — dashed orange -->
-          <polyline points={linePoints} fill="none" stroke="#F59E0B" stroke-width="2" stroke-linejoin="round" stroke-dasharray="4 3" opacity="0.9"/>
+          <!-- Consumption curve — glowing smooth line -->
+          <defs>
+            <filter id="glowLine" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#F59E0B" flood-opacity="0.4"/>
+            </filter>
+          </defs>
+          <polyline points={linePoints} fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="4 4" filter="url(#glowLine)" opacity="1"/>
+
+          <!-- Integrated Timeline Bar (Tägliche Netzunabhängigkeit) -->
+          <g transform="translate(0, {EP.t + ecH + 10})">
+            <!-- Background track -->
+            <rect x={EP.l} y="0" width={EW - EP.l - EP.r} height="8" rx="4" fill="#EDE8E0"/>
+            
+            <!-- Independence active span -->
+            <rect x={EP.l + (tlStartPct/100)*(EW-EP.l-EP.r)} y="0" width={(tlSpanPct/100)*(EW-EP.l-EP.r)} height="8" rx="4" fill="url(#eGradSolar)"/>
+            
+            {#if localBattery}
+              <rect x={EP.l + (17/24)*(EW-EP.l-EP.r)} y="0" width={(5/24)*(EW-EP.l-EP.r)} height="8" rx="4" fill="url(#eGradBat)"/>
+            {/if}
+            
+            <!-- Ticks -->
+            {#each [6,12,18] as tick}
+              <line x1={EP.l + (tick/24)*(EW-EP.l-EP.r)} y1="0" x2={EP.l + (tick/24)*(EW-EP.l-EP.r)} y2="8" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.5"/>
+            {/each}
+          </g>
 
           <!-- Hover tooltip -->
           {#if eHoverH !== null}
@@ -1201,83 +1255,12 @@
           {/if}
         </svg>
 
-        <!-- Legend -->
-        <div class="flex items-center gap-4 px-1">
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-sm" style="background:#38BDF8;"></div>
-            <span class="font-switzer text-[10px] text-[#8C8C8C]">Solar</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-sm" style="background:#B0A89E;"></div>
-            <span class="font-switzer text-[10px] text-[#8C8C8C]">Netzbezug</span>
-          </div>
-          {#if localBattery}
-          <div class="flex items-center gap-1.5">
-            <div class="w-2.5 h-2.5 rounded-sm" style="background:#FBBF24;"></div>
-            <span class="font-switzer text-[10px] text-[#8C8C8C]">Batterie</span>
-          </div>
-          {/if}
-          <div class="flex items-center gap-1.5 ml-auto">
-            <svg width="16" height="6" viewBox="0 0 16 6"><line x1="0" y1="3" x2="16" y2="3" stroke="#F59E0B" stroke-width="2" stroke-dasharray="4 3"/></svg>
-            <span class="font-switzer text-[10px] text-[#8C8C8C]">Verbrauch</span>
-          </div>
-        </div>
-
-        <!-- KPI + 24h timeline -->
-        <div class="pt-2 border-t border-[#f0ece6]">
-          <!-- Numbers row -->
-          <div class="flex items-end justify-between">
-            <div>
-              <p class="font-switzer text-[10px] text-[#8C8C8C]">Eigendeckung</p>
-              <p class="font-switzer font-semibold text-[32px] text-[#030303] leading-none tracking-[-1px] mt-1">
-                {indepPct}<span class="text-[17px] font-normal text-[#8C8C8C] ml-0.5">%</span>
-              </p>
-            </div>
-            <div class="text-right">
-              <p class="font-switzer text-[10px] text-[#8C8C8C]">davon netzunabhängig</p>
-              <p class="font-switzer font-semibold text-[32px] text-[#030303] leading-none tracking-[-1px] mt-1">
-                {indepHours}<span class="text-[17px] font-normal text-[#8C8C8C] ml-0.5">h / Tag</span>
-              </p>
-            </div>
-          </div>
-
-          <!-- 24h annotated timeline -->
-          <div class="mt-3">
-            <!-- Bracket + label above -->
-            <div class="relative h-6 mb-1">
-              <div class="absolute flex flex-col items-center" style="left:{tlStartPct}%; width:{tlSpanPct}%;">
-                <span class="font-switzer font-semibold text-[11px] whitespace-nowrap" style="color:#0EA5E9;">{indepHours}h netzunabhängig</span>
-                <div class="w-full flex items-center mt-0.5">
-                  <div class="h-[6px] w-px" style="background:#0EA5E9;"></div>
-                  <div class="flex-1 h-px" style="background:#0EA5E9; opacity:0.4;"></div>
-                  <div class="h-[6px] w-px" style="background:#0EA5E9;"></div>
-                </div>
-              </div>
-            </div>
-            <!-- Bar -->
-            <div class="relative h-3 rounded-full overflow-hidden" style="background:#EDE8E0;">
-              <div class="absolute top-0 h-full" style="left:{tlStartPct}%; width:{tlSpanPct}%; background:linear-gradient(90deg,#7DD3FC,#0EA5E9);"></div>
-              {#if localBattery}
-                <div class="absolute top-0 h-full" style="left:{(17/24)*100}%; width:{(5/24)*100}%; background:#FBBF24; opacity:0.7;"></div>
-              {/if}
-              {#each [6,12,18] as tick}
-                <div class="absolute top-0 h-full w-px" style="left:{(tick/24)*100}%; background:rgba(255,255,255,0.6);"></div>
-              {/each}
-            </div>
-            <!-- Time labels -->
-            <div class="flex justify-between mt-1.5">
-              {#each ['0h','6h','12h','18h','24h'] as t}
-                <span class="font-switzer text-[9px] text-[#C0BAB2]">{t}</span>
-              {/each}
-            </div>
-          </div>
-        </div>
-          </div><!-- /right column -->
+        </div><!-- /right column -->
         </div><!-- /flex row -->
       </div><!-- /combined card -->
 
       <!-- ── KPI: Installationsdauer ── -->
-      <div class="rounded-[16px] px-6 py-5 flex flex-col justify-between" style="background:white; border:1px solid #ede8e0;">
+      <div class="col-span-2 w-full rounded-[16px] px-6 py-5 flex flex-col justify-between" style="background:white; border:1px solid #ede8e0;">
         <!-- Header -->
         <div class="mb-5">
           <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Installationsdauer</p>
@@ -1329,7 +1312,6 @@
               <div class="h-[7px] rounded-full w-full" style="background:{step.barColor};"></div>
 
               <!-- Hover tooltip -->
-              <!-- Hover tooltip -->
               <div class="absolute top-[calc(100%+14px)] left-1/2 -translate-x-1/2 w-[240px] rounded-[18px] px-5 py-5 pointer-events-none
                 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                 style="background:#0e0e0e; box-shadow:0 16px 40px rgba(0,0,0,0.35); z-index:50;">
@@ -1349,6 +1331,55 @@
             4–6 <span class="text-[22px] font-normal text-[#8C8C8C]">Wochen</span>
           </p>
           <p class="font-switzer text-[12px] text-[#8C8C8C] mt-2">schlüsselfertig & betriebsbereit</p>
+        </div>
+      </div>
+      <!-- ── PARTNER WIDGET ── -->
+      <div class="col-span-1 w-full rounded-[16px] p-6 flex flex-col justify-between relative overflow-hidden" style="background:#ffffff; border:1px solid #e8e2da;">
+
+        <div class="flex flex-col h-full justify-between gap-5">
+          <!-- Header -->
+          <div>
+            <div class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 mb-4" style="background:#f0fdf4; border:1px solid #bbf7d0;">
+              <div class="w-1.5 h-1.5 rounded-full bg-[#16a34a]"></div>
+              <p class="font-switzer font-semibold text-[11px] text-[#15803d] uppercase tracking-wider">Ihr Partner auf 25 Jahre</p>
+            </div>
+
+            <p class="font-switzer font-extrabold text-[26px] text-[#1a1a1a] leading-[1.1] tracking-tight mb-2">Wir sind auch<br>in Zukunft für<br>Sie da.</p>
+            <p class="font-switzer text-[13px] text-[#6b7280] leading-[1.6]">Ihre Anlage wächst mit Ihren Bedürfnissen — wir begleiten Sie dabei.</p>
+          </div>
+
+          <!-- Services -->
+          <div class="flex flex-col gap-2.5">
+            <div class="flex items-center gap-3 rounded-[12px] px-3.5 py-3" style="background:#f6f1eb; border:1px solid #e8e2da;">
+              <div class="w-7 h-7 rounded-[8px] bg-white flex items-center justify-center shrink-0" style="border:1px solid #e8e2da;">
+                <svg class="w-3.5 h-3.5 text-[#02B597]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+              </div>
+              <div>
+                <p class="font-switzer font-semibold text-[13px] text-[#1a1a1a]">Energieberatung</p>
+                <p class="font-switzer text-[11px] text-[#9ca3af]">Optimierung & Erweiterung</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 rounded-[12px] px-3.5 py-3" style="background:#f6f1eb; border:1px solid #e8e2da;">
+              <div class="w-7 h-7 rounded-[8px] bg-white flex items-center justify-center shrink-0" style="border:1px solid #e8e2da;">
+                <svg class="w-3.5 h-3.5 text-[#02B597]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+              </div>
+              <div>
+                <p class="font-switzer font-semibold text-[13px] text-[#1a1a1a]">Smart Management</p>
+                <p class="font-switzer text-[11px] text-[#9ca3af]">Monitoring & Steuerung</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 rounded-[12px] px-3.5 py-3" style="background:#f6f1eb; border:1px solid #e8e2da;">
+              <div class="w-7 h-7 rounded-[8px] bg-white flex items-center justify-center shrink-0" style="border:1px solid #e8e2da;">
+                <svg class="w-3.5 h-3.5 text-[#02B597]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              </div>
+              <div>
+                <p class="font-switzer font-semibold text-[13px] text-[#1a1a1a]">Service & Wartung</p>
+                <p class="font-switzer text-[11px] text-[#9ca3af]">Langfristig zuverlässig</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
