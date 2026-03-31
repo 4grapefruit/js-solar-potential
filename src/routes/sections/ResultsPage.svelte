@@ -161,6 +161,21 @@
   function bpx(h:number){return BP.l+h*bStep+bStep/2-bBarW/2;}
   function bph(v:number){return (v/maxHourly)*bcH;}
   function bpy(v:number){return BP.t+bcH-bph(v);}
+  $: prodPts = hourlyData.map(d => `${(BP.l + d.h * bStep + bStep/2).toFixed(1)},${bpy(d.prod).toFixed(1)}`).join(' ');
+  $: batPts  = hourlyData.map(d => { const charge = Math.max(0, d.prod - d.cons) * 0.4; return `${(BP.l + d.h * bStep + bStep/2).toFixed(1)},${(BP.t + bcH - (charge/maxHourly)*bcH).toFixed(1)}`; }).join(' ');
+
+  function smoothPath(pts: {x:number,y:number}[]): string {
+    if (pts.length < 2) return '';
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i-1], curr = pts[i];
+      const cpx = (prev.x + curr.x) / 2;
+      d += ` C ${cpx} ${prev.y} ${cpx} ${curr.y} ${curr.x} ${curr.y}`;
+    }
+    return d;
+  }
+  $: prodPath = smoothPath(hourlyData.map(d => ({ x: BP.l + d.h * bStep + bStep/2, y: bpy(d.prod) })));
+  $: batPath  = smoothPath(hourlyData.map(d => { const charge = Math.max(0, d.prod - d.cons) * 0.4; return { x: BP.l + d.h * bStep + bStep/2, y: BP.t + bcH - (charge/maxHourly)*bcH }; }));
 
   let bHoverHour: number | null = null;
   function handleBarMove(e: MouseEvent) {
@@ -764,97 +779,87 @@
             <p class="font-switzer text-[13px] text-[#8C8C8C] mt-0.5">Typischer Tagesverlauf · {activeSeason === 'year' ? 'Jahresdurchschnitt' : seasons.find(s=>s.key===activeSeason)?.label}</p>
           </div>
           <div class="flex items-center gap-4">
+            <div class="flex items-center gap-1.5">
+              <div class="w-5 h-[2.5px] rounded-full" style="background:#FFD000"/>
+              <span class="font-switzer text-[12px] text-[#8C8C8C]">Solar</span>
+            </div>
             {#if localBattery}
               <div class="flex items-center gap-1.5">
-                <div class="w-3 h-[3px] rounded-full" style="background:#FFE572"/>
-                <span class="font-switzer text-[12px] text-[#8C8C8C]">Batterie</span>
+                <div class="w-5 h-[2.5px] rounded-full" style="background:#F97316"/>
+                <span class="font-switzer text-[12px] text-[#8C8C8C]">Batterieladung</span>
               </div>
             {/if}
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded-sm" style="background:#0BDBB8; opacity:0.8"/>
-              <span class="font-switzer text-[12px] text-[#8C8C8C]">Produktion</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded-sm" style="background:#66A3FF; opacity:0.4"/>
-              <span class="font-switzer text-[12px] text-[#8C8C8C]">Verbrauch</span>
-            </div>
           </div>
         </div>
         <!-- Chart -->
         <svg viewBox="0 0 {BW} {BH}" class="w-full" style="overflow:visible; cursor:crosshair;"
           on:mousemove={handleBarMove} on:mouseleave={() => bHoverHour=null}>
           <defs>
-            <linearGradient id="gradProd" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#0BDBB8" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#0BDBB8" stop-opacity="0.5"/>
-            </linearGradient>
-            <linearGradient id="gradCons" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#66A3FF" stop-opacity="0.5"/>
-              <stop offset="100%" stop-color="#66A3FF" stop-opacity="0.15"/>
-            </linearGradient>
+            <filter id="solarGlow" x="-20%" y="-60%" width="140%" height="220%">
+              <feGaussianBlur stdDeviation="4" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <filter id="tipShadowB" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.28"/>
+            </filter>
           </defs>
+
           <!-- Grid -->
           {#each [0.25,0.5,0.75,1] as f}
             <line x1={BP.l} y1={BP.t+bcH*(1-f)} x2={BW-BP.r} y2={BP.t+bcH*(1-f)}
-              stroke="#f4f4f4" stroke-width="1"/>
+              stroke="#f0f0f0" stroke-width="1"/>
             <text x={BP.l-5} y={BP.t+bcH*(1-f)+4} text-anchor="end" font-size="9" fill="#bbb" font-family="Switzer,sans-serif">
-              {(maxHourly*f).toFixed(1)}
+              {(maxHourly*f).toFixed(1)} kW
             </text>
           {/each}
-          <!-- Bars -->
-          {#each hourlyData as d}
-            <rect x={bpx(d.h)} y={bpy(d.cons)} width={bBarW} height={bph(d.cons)}
-              fill="url(#gradCons)" rx="3"
-              opacity="{bHoverHour===null||bHoverHour===d.h?1:0.35}"/>
-          {/each}
-          {#each hourlyData as d}
-            <rect x={bpx(d.h)} y={bpy(d.prod)} width={bBarW} height={bph(d.prod)}
-              fill="url(#gradProd)" rx="3"
-              opacity="{bHoverHour===null||bHoverHour===d.h?1:0.35}"/>
-          {/each}
+
+          <!-- Batterieladung Linie (smooth) -->
           {#if localBattery}
-            <polyline
-              points={hourlyData.map(d=>`${(bpx(d.h)+bBarW/2).toFixed(1)},${(BP.t+bcH-(d.bat/100)*bcH).toFixed(1)}`).join(' ')}
-              fill="none" stroke="#FFE572" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+            <path d={batPath} fill="none" stroke="#F97316" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
           {/if}
+
+          <!-- Solar Glow (blur layer) -->
+          <path d={prodPath} fill="none" stroke="#FFD000" stroke-width="5" stroke-linecap="round" opacity="0.12" filter="url(#solarGlow)"/>
+          <!-- Solar Linie (smooth) -->
+          <path d={prodPath} fill="none" stroke="#FFD000" stroke-width="3" stroke-linecap="round"/>
+          <!-- Dots für Hover -->
+          {#if bHoverHour !== null}
+            <circle cx={BP.l + bHoverHour * bStep + bStep/2} cy={bpy(hourlyData[bHoverHour].prod)} r="5" fill="#FFD000" stroke="white" stroke-width="2.5"/>
+            {#if localBattery}
+              <circle cx={BP.l + bHoverHour * bStep + bStep/2} cy={BP.t + bcH - (Math.max(0, hourlyData[bHoverHour].prod - hourlyData[bHoverHour].cons)/maxHourly)*bcH} r="5" fill="#F97316" stroke="white" stroke-width="2.5"/>
+            {/if}
+          {/if}
+
           <!-- X axis -->
-          <line x1={BP.l} y1={BP.t+bcH} x2={BW-BP.r} y2={BP.t+bcH} stroke="#eeeeee" stroke-width="1"/>
+          <line x1={BP.l} y1={BP.t+bcH} x2={BW-BP.r} y2={BP.t+bcH} stroke="#ddd6cc" stroke-width="1"/>
           {#each [0,4,8,12,16,20,23] as h}
-            <text x={bpx(h)+bBarW/2} y={BH-8} text-anchor="middle" font-size="9" fill="#bbb" font-family="Switzer,sans-serif">{h}h</text>
+            <text x={BP.l + h * bStep + bStep/2} y={BH-8} text-anchor="middle" font-size="9" fill="#b0a898" font-family="Switzer,sans-serif">{h}h</text>
           {/each}
+
           <!-- Hover tooltip -->
           {#if bHoverHour !== null}
             {@const hd = hourlyData[bHoverHour]}
-            {@const tx = bpx(bHoverHour)+bBarW/2}
+            {@const tx = BP.l + bHoverHour * bStep + bStep/2}
             {@const tipLeft = tx > BW*0.65}
             {@const tipX = tipLeft ? tx-188 : tx+14}
             {@const tipW = 176}
             {@const tipH = localBattery ? 110 : 88}
-            <line x1={tx} y1={BP.t} x2={tx} y2={BP.t+bcH} stroke="#030303" stroke-width="1" stroke-dasharray="4 3" opacity="0.15"/>
-            <filter id="tipShadowB" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.28"/>
-            </filter>
+            {@const charge = Math.max(0, hd.prod - hd.cons)}
+            <line x1={tx} y1={BP.t} x2={tx} y2={BP.t+bcH} stroke="#030303" stroke-width="1" stroke-dasharray="4 3" opacity="0.12"/>
             <g class="tip-enter">
-              <!-- Tooltip box -->
               <rect x={tipX} y={BP.t-4} width={tipW} height={tipH} rx="14" fill="#0e0e0e" filter="url(#tipShadowB)"/>
               <rect x={tipX} y={BP.t-4} width={tipW} height={tipH} rx="14" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
-              <!-- Time header -->
               <text x={tipX+16} y={BP.t+16} font-size="13" font-weight="700" fill="white" letter-spacing="-0.3" font-family="Switzer,sans-serif">{bHoverHour}:00 Uhr</text>
-              <!-- Divider -->
               <line x1={tipX+16} y1={BP.t+25} x2={tipX+tipW-16} y2={BP.t+25} stroke="#252525" stroke-width="1"/>
-              <!-- Produktion row -->
-              <circle cx={tipX+22} cy={BP.t+40} r="4" fill="#0BDBB8"/>
-              <text x={tipX+32} y={BP.t+44} font-size="12" fill="#666" font-family="Switzer,sans-serif">Produktion</text>
+              <circle cx={tipX+22} cy={BP.t+40} r="4" fill="#FFE572"/>
+              <text x={tipX+32} y={BP.t+44} font-size="12" fill="#666" font-family="Switzer,sans-serif">Solarproduktion</text>
               <text x={tipX+tipW-16} y={BP.t+44} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{hd.prod.toFixed(2)} kW</text>
-              <!-- Verbrauch row -->
-              <circle cx={tipX+22} cy={BP.t+62} r="4" fill="#66A3FF"/>
-              <text x={tipX+32} y={BP.t+66} font-size="12" fill="#666" font-family="Switzer,sans-serif">Verbrauch</text>
-              <text x={tipX+tipW-16} y={BP.t+66} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{hd.cons.toFixed(2)} kW</text>
-              <!-- Batterie row -->
               {#if localBattery}
-                <circle cx={tipX+22} cy={BP.t+84} r="4" fill="#FFE572"/>
-                <text x={tipX+32} y={BP.t+88} font-size="12" fill="#666" font-family="Switzer,sans-serif">Batterie</text>
-                <text x={tipX+tipW-16} y={BP.t+88} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{hd.bat.toFixed(0)}%</text>
+                <circle cx={tipX+22} cy={BP.t+62} r="4" fill="#F97316"/>
+                <text x={tipX+32} y={BP.t+66} font-size="12" fill="#666" font-family="Switzer,sans-serif">Batterieladung</text>
+                <text x={tipX+tipW-16} y={BP.t+66} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{charge.toFixed(2)} kW</text>
+                <rect x={tipX+14} y={BP.t+80} width={tipW-28} height="14" rx="3" fill="rgba(249,115,22,0.1)"/>
+                <text x={tipX+tipW/2} y={BP.t+90} text-anchor="middle" font-size="9" fill="#F97316" font-family="Switzer,sans-serif">Überschuss wird gespeichert</text>
               {/if}
             </g>
           {/if}
@@ -918,9 +923,12 @@
             <circle cx={lBEX} cy={lBEY} r="6" fill="white" stroke="#FFE572" stroke-width="2.5"/>
             <circle cx={lBEX} cy={lBEY} r="2.5" fill="#FFE572"/>
             <!-- Year label — fades out while hovering -->
+            {@const labelW2 = 148}
+            {@const labelX2 = Math.min(Math.max(lBEX - labelW2/2, LP.l), LW - LP.r - labelW2)}
             <g style="opacity:{lHoverYear===null?1:0}; transition:opacity 0.25s ease;">
-              <rect x={labelX} y={labelY} width={labelW} height="32" rx="16" fill="#030303"/>
-              <text x={lBEX} y={labelY+21} text-anchor="middle" font-size="16" font-weight="700" fill="#FFE572" letter-spacing="-0.5" font-family="Switzer,sans-serif">{beCalYear}</text>
+              <rect x={labelX2} y={labelY} width={labelW2} height="44" rx="12" fill="#030303"/>
+              <text x={labelX2 + labelW2/2} y={labelY+17} text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.5)" font-family="Switzer,sans-serif">Anlage amortisiert</text>
+              <text x={labelX2 + labelW2/2} y={labelY+35} text-anchor="middle" font-size="17" font-weight="700" fill="#FFE572" letter-spacing="-0.5" font-family="Switzer,sans-serif">Ab {beCalYear}</text>
             </g>
           {/if}
           <!-- X axis labels -->
