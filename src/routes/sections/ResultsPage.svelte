@@ -82,19 +82,25 @@
   $: sm      = seasonMult[activeSeason];
   $: sProd   = initialAcKwhPerYear * sm.prod;                           // Solar production
   $: evKwh   = evCharging ? EV_KWH_PER_YEAR * sm.cons : 0;             // EV consumption
-  $: sCons   = yearlyKwhEnergyConsumption * sm.cons + evKwh;            // Total consumption
+  $: houseCons = yearlyKwhEnergyConsumption * sm.cons;                  // Hausverbrauch (ohne EV)
+  $: sCons   = houseCons + evKwh;                                        // Gesamtverbrauch
 
-  // How much solar can cover directly
-  $: maxDirect  = Math.min(sProd, sCons);
-  $: directKwh  = maxDirect * (localBattery ? 0.55 : 0.70);            // Direct self-consumption
-  $: batteryKwh = localBattery ? maxDirect * 0.25 : 0;                  // Solar → Battery
-  $: solarUsed  = directKwh + batteryKwh;                               // Total solar used locally
-  $: einspeisKwh= Math.max(0, sProd - solarUsed);                       // Solar → Netz (export)
-  $: gridImport = Math.max(0, sCons - solarUsed);                       // Netz → Haus (import)
-
-  // EV share from solar (rough estimate: proportional to solar coverage)
-  $: evFromSolar = evCharging && sCons > 0
-    ? Math.min(evKwh, solarUsed * (evKwh / sCons)) : 0;
+  // EMS-Prioritäten: 1. Eigenverbrauch → 2. Batterie → 3. Ladestation → 4. Netzeinspeisung
+  const BATTERY_KWH_YEAR = 3000; // ~10 kWh × 300 Zyklen/Jahr
+  // Prio 1: Eigenverbrauch (direkter Solarstrom ins Haus)
+  $: directKwh  = Math.min(sProd, houseCons);
+  $: surplus1   = Math.max(0, sProd - directKwh);
+  // Prio 2: Batterie laden
+  $: batteryKwh = localBattery ? Math.min(surplus1, BATTERY_KWH_YEAR) : 0;
+  $: surplus2   = Math.max(0, surplus1 - batteryKwh);
+  // Prio 3: Ladestation E-Auto
+  $: evFromSolar = evCharging ? Math.min(evKwh, surplus2) : 0;
+  $: surplus3    = Math.max(0, surplus2 - evFromSolar);
+  // Prio 4: Netzeinspeisung (max. 70% der Gesamtproduktion)
+  $: einspeisKwh = Math.min(surplus3, sProd * 0.70);
+  // Netz-Import: was Solar + Batterie nicht decken kann
+  $: solarUsed  = directKwh + batteryKwh + evFromSolar;
+  $: gridImport = Math.max(0, sCons - solarUsed);
 
   $: roofPct    = sCons > 0 ? Math.min(100, Math.round((solarUsed / sCons) * 100)) : 0;
   $: netGridPct = 100 - roofPct;
@@ -519,6 +525,36 @@
 </script>
 
 <style>
+  /* ── EV Hover-Karte ─────────────────────────────────────────────────────── */
+  /* Position oben-links fixiert, wächst nach unten-rechts */
+  .ev-float {
+    transform-origin: top left;
+  }
+
+  /* Karte: kompakt im Normalzustand, expandiert beim Hover */
+  .ev-card-hover {
+    width: 130px;
+    transition: width 0.35s ease;
+    overflow: hidden;
+  }
+
+  .ev-card-hover:hover {
+    width: 230px;
+  }
+
+  /* Solar-Info unten — klappt vertikal auf */
+  .ev-expand {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 0.35s ease, opacity 0.25s ease;
+  }
+
+  .ev-card-hover:hover .ev-expand {
+    max-height: 120px;
+    opacity: 1;
+  }
+
   /* ── Clock reveal animations ────────────────────────────────────────────── */
   @keyframes segReveal {
     from { opacity: 0; transform: scale(0.68); }
@@ -913,15 +949,43 @@
 
           <!-- EV LADESTATION (rechts, beim Garageneingang) -->
           {#if evCharging}
-            <div class="absolute" role="region" aria-label="Ladestation" style="left:75%; top:70%; opacity:{bEV}; transition:opacity 0.5s;"
+            <div class="absolute ev-float" role="region" aria-label="Ladestation" style="left:75%; top:70%; opacity:{bEV}; transition:opacity 0.5s;"
               on:mouseenter={() => hoveredFlow='ev'} on:mouseleave={() => hoveredFlow=null}>
-              <div class="rounded-[10px] px-3 py-2 shadow-lg" style="background:rgba(3,3,3,0.84); backdrop-filter:blur(8px); min-width:130px;">
-                <div class="flex items-center gap-1.5 mb-0.5">
-                  <div class="w-2 h-2 rounded-full bg-[#A78BFA]" />
-                  <span class="font-switzer text-[10px] text-[#A78BFA]">Ladestation</span>
+              <div class="rounded-[10px] shadow-lg ev-card-hover" style="background:rgba(3,3,3,0.84); backdrop-filter:blur(8px);">
+
+                <!-- Basis-Inhalt: oben (Label + Badge) + Hauptzahl -->
+                <div class="px-3 py-2">
+                  <div class="flex items-center justify-between gap-3 mb-0.5">
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-2 h-2 rounded-full bg-[#A78BFA]" />
+                      <span class="font-switzer text-[10px] text-[#A78BFA]">Ladestation</span>
+                    </div>
+                  </div>
+                  <p class="font-switzer font-semibold text-[17px] text-white leading-none">{fmt(evKwh)} kWh</p>
+                  <p class="font-switzer text-[10px] text-[#8C8C8C] mt-0.5">20'000 km / Jahr</p>
                 </div>
-                <p class="font-switzer font-semibold text-[17px] text-white leading-none">{fmt(evKwh)} kWh</p>
-                <p class="font-switzer text-[10px] text-[#8C8C8C] mt-0.5">20'000 km / Jahr</p>
+
+                <!-- Hover-Erweiterung: Solar-Info unten, volle Breite -->
+                <div class="ev-expand">
+                  <div class="px-3 pt-2 pb-3" style="border-top:1px solid rgba(167,139,250,0.15)">
+                    <div class="flex items-center justify-between mb-1">
+                      <div class="flex items-center gap-1">
+                        <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="#A78BFA"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+                        <span class="font-switzer text-[11px] text-[#8C8C8C]">Solar lädt täglich</span>
+                      </div>
+                      <p class="font-switzer font-bold text-[15px] text-white leading-none">{fmt(evFromSolar / 365, 1)} kWh</p>
+                    </div>
+                    <div class="h-1.5 rounded-full mb-1" style="background:rgba(255,255,255,0.1);">
+                      <div class="h-1.5 rounded-full"
+                        style="width:{evKwh > 0 ? Math.min(100, Math.round((evFromSolar/evKwh)*100)) : 0}%; background:linear-gradient(90deg,#16A34A,#4ADE80)"/>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="font-switzer text-[10px] text-[#8C8C8C]">Solar-Abdeckung</span>
+                      <span class="font-switzer text-[10px] font-semibold text-[#A78BFA]">{evKwh > 0 ? Math.min(100, Math.round((evFromSolar/evKwh)*100)) : 0}%</span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
           {/if}
@@ -994,6 +1058,7 @@
               <span class="font-switzer font-semibold text-[13px] tracking-[-0.26px]"
                 style="color:{evCharging?'white':'#030303'}">Ladestation</span>
             </button>
+
           </div>
 
           <!-- Heizung -->

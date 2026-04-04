@@ -46,7 +46,7 @@
   let showPanels = true;
   let showHeatmap = true;
   let yearlyAverageEnergyBillInput = 3200;
-  let panelCapacityWattsInput = 250;
+  let panelCapacityWattsInput = 480;
   let energyCostPerKwhInput = 0.29;
   let dcToAcDerateInput = 0.85;
 
@@ -62,8 +62,8 @@
   const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
   // ── Financial constants (Schweiz) ─────────────────────────────────────────
-  // Installationskosten: CHF 2.80/W (CH-Durchschnitt Wohngebäude)
-  const installationCostPerWatt = 2.8;
+  // Installationskosten gestaffelt (CHF/kWp):
+  // ≤ 30 kWp: CHF 1'650/kWp | 30–100 kWp: CHF 1'150/kWp | > 100 kWp: CHF 750/kWp
   // Laufzeit: 25 Jahre (CH-Standard, Garantien meist 25–30 Jahre)
   const installationLifeSpan = 25;
   // Degradation: 0.5%/Jahr (Herstellerstandard)
@@ -72,6 +72,9 @@
   const costIncreaseFactor = 1.04;
   // Diskontrate: 2% (CH-Kapitalmarkt / Hypothekenzinsen)
   const discountRate = 1.02;
+  // Einspeisevergütung: max. 70% der Produktion ins Netz, fixer Tarif CHF 0.06/kWh (CH-Regelung)
+  const maxFeedInPct = 0.70;
+  const feedInTariff = 0.06;
 
   // ── Reactive computations ─────────────────────────────────────────────────
   $: solarPanelConfigs = buildingInsights?.solarPotential?.solarPanelConfigs ?? [];
@@ -80,7 +83,8 @@
   $: panelConfig = configId !== undefined ? solarPanelConfigs[configId] : undefined;
   $: panelCapacityRatio = panelCapacityWattsInput / defaultPanelCapacityWatts;
   $: installationSizeKw = ((panelConfig?.panelsCount ?? 0) * panelCapacityWattsInput) / 1000;
-  $: installationCostTotal = installationCostPerWatt * installationSizeKw * 1000;
+  $: installationCostPerKwp = installationSizeKw <= 30 ? 1650 : installationSizeKw <= 100 ? 1150 : 750;
+  $: installationCostTotal  = installationCostPerKwp * installationSizeKw;
   // EIV (Einmalvergütung): CHF 390/kWp für Kleinanlagen ≤ 100 kWp
   $: solarIncentives = Math.min(installationSizeKw, 100) * 390;
   $: yearlyKwhEnergyConsumption = yearlyAverageEnergyBillInput / energyCostPerKwhInput;
@@ -101,12 +105,13 @@
     cumWithSolar = (() => {
       let acc = 0;
       return yearlyProduction.map((produced, i) => {
-        const bill = Math.max(
-          ((yearlyKwhEnergyConsumption - produced) *
-            energyCostPerKwhInput *
-            costIncreaseFactor ** i) /
-            discountRate ** i,
-          0,
+        const netConsumption  = Math.max(0, yearlyKwhEnergyConsumption - produced);
+        const surplus         = Math.max(0, produced - yearlyKwhEnergyConsumption);
+        const feedInKwh       = Math.min(surplus, produced * maxFeedInPct);
+        const feedInRevenue   = feedInKwh * feedInTariff * costIncreaseFactor ** i / discountRate ** i;
+        const bill            = Math.max(
+          (netConsumption * energyCostPerKwhInput * costIncreaseFactor ** i) / discountRate ** i - feedInRevenue,
+          -feedInRevenue, // kann negativ sein wenn Einspeisung > Stromkosten
         );
         return (acc += i === 0 ? bill + installationCostTotal - solarIncentives : bill);
       });
@@ -122,6 +127,28 @@
     breakEvenYear = cumWithSolar.findIndex((c, i) => c <= cumWithoutSolar[i]);
   }
   $: savings = cumWithoutSolar.length ? cumWithoutSolar[cumWithoutSolar.length - 1] - cumWithSolar[cumWithSolar.length - 1] : 0;
+
+  // ── EMS-Prioritäten: 1. Eigenverbrauch → 2. Batterie → 3. Ladestation → 4. Netzeinspeisung ─
+  const EV_KWH_PER_YEAR = 3600;         // 20'000 km × 0.18 kWh/km
+  const BATTERY_KWH_YEAR = 3000;        // ~10 kWh Batterie × 300 Zyklen/Jahr
+  // Prio 1: Eigenverbrauch (Haus)
+  $: eigenverbrauchKwh = Math.min(initialAcKwhPerYear, yearlyKwhEnergyConsumption);
+  $: surplus1          = Math.max(0, initialAcKwhPerYear - eigenverbrauchKwh);
+  // Prio 2: Batterie laden (falls vorhanden)
+  $: batterieKwh       = batteryStorage ? Math.min(surplus1, BATTERY_KWH_YEAR) : 0;
+  $: surplus2          = Math.max(0, surplus1 - batterieKwh);
+  // Prio 3: Ladestation E-Auto (falls vorhanden)
+  $: evFromSolar       = electricVehicle ? Math.min(EV_KWH_PER_YEAR, surplus2) : 0;
+  $: evCoverage        = Math.min(100, Math.round((evFromSolar / EV_KWH_PER_YEAR) * 100));
+  $: surplus3          = Math.max(0, surplus2 - evFromSolar);
+  // Prio 4: Netzeinspeisung (max. 70% der Gesamtproduktion)
+  $: evGridFeedIn      = Math.min(surplus3, initialAcKwhPerYear * maxFeedInPct);
+  $: evGridRevenue     = evGridFeedIn * feedInTariff;
+  $: hasData           = initialAcKwhPerYear > 0;
+
+  function fmtEv(n: number, d = 1) {
+    return n.toLocaleString('de-CH', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
 
   // ── Init ──────────────────────────────────────────────────────────────────
   onMount(async () => {
@@ -453,11 +480,11 @@
             <div class="bg-black rounded-lg flex items-center justify-between p-2.5">
               <div class="flex items-center gap-2">
                 <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="white"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
-                <span class="font-switzer text-white text-xs font-semibold tracking-[-0.24px]">Break-even</span>
+                <span class="font-switzer text-white text-xs font-semibold tracking-[-0.24px]">Amortisation ab</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="font-switzer text-white text-base">{breakEvenYear >= 0 ? breakEvenYear + 1 : '—'}</span>
-                <span class="font-switzer text-white text-base">Jahre</span>
+                <span class="font-switzer text-white text-base">Jahren</span>
               </div>
             </div>
 
@@ -484,7 +511,7 @@
                 <div class="px-3 pb-3 pt-1 bg-[#fafafa] flex flex-col gap-1.5">
                   <div class="flex justify-between items-baseline">
                     <span class="font-switzer text-[#8C8C8C] text-[11px]">Installationskosten</span>
-                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">CHF {installationCostPerWatt.toFixed(2)} / Watt</span>
+                    <span class="font-switzer text-[#030303] text-[11px] font-semibold">CHF {installationCostPerKwp.toLocaleString('de-CH')} / kWp</span>
                   </div>
                   <div class="flex justify-between items-baseline">
                     <span class="font-switzer text-[#8C8C8C] text-[11px]">EIV (Einmalvergütung)</span>
@@ -636,12 +663,21 @@
             <!-- Electric vehicle section — expands when active -->
             <div>
               {#if electricVehicle}
-                <!-- ACTIVE: dark card -->
-                <div class="ev-card rounded-[10px] overflow-hidden">
+                <!-- ACTIVE: moderne EV-Karte -->
+                <div class="rounded-[14px] overflow-hidden" style="background: linear-gradient(135deg, #1a0533 0%, #2d1060 100%); border: 1px solid rgba(167,139,250,0.35);">
+
+                  <!-- Header mit Toggle -->
                   <div class="flex items-center justify-between pl-4 pr-[10px] py-[10px] gap-6">
-                    <div class="flex flex-col gap-0.5">
-                      <span class="font-switzer text-white text-xs font-semibold tracking-[-0.24px] leading-[16px]">Elektrofahrzeug (EV)</span>
-                      <span class="font-switzer text-[#8C8C8C] text-[12px] tracking-[-0.24px] leading-[16px]">EV charging based on solar output</span>
+                    <div class="flex items-center gap-2">
+                      <div class="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style="background:rgba(167,139,250,0.2)">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="#A78BFA">
+                          <path d="M7 2v11h3v9l7-12h-4l4-8z"/>
+                        </svg>
+                      </div>
+                      <div class="flex flex-col gap-0.5">
+                        <span class="font-switzer text-white text-xs font-semibold tracking-[-0.24px] leading-[16px]">Elektrofahrzeug (EV)</span>
+                        <span class="font-switzer text-[11px] leading-[15px]" style="color:rgba(167,139,250,0.7)">Überschuss-Strom lädt dein Auto</span>
+                      </div>
                     </div>
                     <button
                       on:click={() => (electricVehicle = !electricVehicle)}
@@ -650,30 +686,57 @@
                       <span class="toggle__knob" />
                     </button>
                   </div>
-                  <!-- Illustration -->
-                  <div class="flex-1 overflow-hidden flex items-center justify-center" style="background:#0C322C;">
-                    <svg width="288" height="77" viewBox="0 0 288 77" fill="none">
-                      <rect x="0" y="63" width="288" height="14" fill="#041714"/>
-                      <rect x="44" y="36" width="108" height="27" rx="5" fill="#014F42"/>
-                      <rect x="60" y="22" width="76" height="20" rx="4" fill="#9EDFD4" opacity="0.6"/>
-                      <rect x="63" y="24" width="24" height="14" rx="1.5" fill="#02B597" opacity="0.9"/>
-                      <rect x="90" y="24" width="24" height="14" rx="1.5" fill="#02B597" opacity="0.9"/>
-                      <rect x="117" y="24" width="14" height="14" rx="1.5" fill="#02B597" opacity="0.9"/>
-                      <line x1="75" y1="24" x2="75" y2="38" stroke="#014F42" stroke-width="1"/>
-                      <line x1="102" y1="24" x2="102" y2="38" stroke="#014F42" stroke-width="1"/>
-                      <circle cx="76" cy="64" r="9" fill="#030303"/>
-                      <circle cx="76" cy="64" r="4" fill="#1a3a34"/>
-                      <circle cx="140" cy="64" r="9" fill="#030303"/>
-                      <circle cx="140" cy="64" r="4" fill="#1a3a34"/>
-                      <path d="M168 22 L161 40 L168 40 L161 54 L180 34 L172 34 Z" fill="#02B597"/>
-                      <rect x="195" y="22" width="34" height="20" rx="2" fill="#014F42"/>
-                      <rect x="234" y="16" width="34" height="20" rx="2" fill="#014F42"/>
-                      <rect x="209" y="42" width="2" height="10" fill="#014F42"/>
-                      <rect x="248" y="36" width="2" height="10" fill="#014F42"/>
-                      <rect x="196" y="54" width="54" height="7" rx="3" fill="#041714"/>
-                      <rect x="197" y="55" width="40" height="5" rx="2" fill="#02B597"/>
-                    </svg>
+
+                  <!-- Aufschlüsselung -->
+                  <div class="px-4 pb-2 flex flex-col gap-[6px]">
+                    {#if hasData}
+                      <div class="flex justify-between items-center">
+                        <span class="font-switzer text-[11px]" style="color:rgba(255,255,255,0.45)">☀ Tägliche Produktion</span>
+                        <span class="font-switzer text-[11px] text-white">+ {fmtEv(initialAcKwhPerYear / 365)} kWh</span>
+                      </div>
+                      <div class="flex justify-between items-center">
+                        <span class="font-switzer text-[11px]" style="color:rgba(255,255,255,0.45)">− Eigenverbrauch</span>
+                        <span class="font-switzer text-[11px] text-[#F59E0B]">− {fmtEv(eigenverbrauchKwh / 365)} kWh</span>
+                      </div>
+                      {#if batteryStorage}
+                      <div class="flex justify-between items-center">
+                        <span class="font-switzer text-[11px]" style="color:rgba(255,255,255,0.45)">− Batterie</span>
+                        <span class="font-switzer text-[11px] text-[#F97316]">− {fmtEv(batterieKwh / 365)} kWh</span>
+                      </div>
+                      {/if}
+                      <div class="h-px my-0.5" style="background:rgba(167,139,250,0.2)"/>
+                      <div class="flex justify-between items-center">
+                        <span class="font-switzer font-semibold text-[11px] text-[#A78BFA]">= E-Auto laden</span>
+                        <span class="font-switzer font-semibold text-[11px] text-[#A78BFA]">{fmtEv(evFromSolar / 365)} kWh/Tag</span>
+                      </div>
+                      {#if evGridFeedIn > 0}
+                      <div class="flex justify-between items-center mt-[6px] pt-[6px]" style="border-top:1px solid rgba(11,219,184,0.2)">
+                        <span class="font-switzer text-[11px]" style="color:rgba(11,219,184,0.7)">↑ Netzeinspeisung</span>
+                        <div class="flex flex-col items-end gap-0">
+                          <span class="font-switzer text-[11px]" style="color:#0BDBB8">{fmtEv(evGridFeedIn / 365)} kWh/Tag</span>
+                          <span class="font-switzer text-[9px]" style="color:rgba(11,219,184,0.5)">+ CHF {fmtEv(evGridRevenue)} / Jahr</span>
+                        </div>
+                      </div>
+                      {/if}
+                    {:else}
+                      <p class="font-switzer text-[11px] text-center py-1" style="color:rgba(255,255,255,0.3)">Adresse eingeben für Berechnung</p>
+                    {/if}
                   </div>
+
+                  <!-- Ladebalken -->
+                  <div class="px-4 pb-4 pt-1">
+                    <div class="h-1.5 rounded-full w-full overflow-hidden" style="background:rgba(255,255,255,0.1)">
+                      <div class="h-1.5 rounded-full transition-all duration-700"
+                        style="width:{hasData ? evCoverage : 0}%; background:linear-gradient(90deg,#7C3AED,#A78BFA)"/>
+                    </div>
+                    <div class="flex justify-between mt-1">
+                      <p class="font-switzer text-[9px]" style="color:rgba(255,255,255,0.3)">Solar-Abdeckung EV</p>
+                      {#if hasData}
+                        <p class="font-switzer font-semibold text-[9px] text-white">{evCoverage}%</p>
+                      {/if}
+                    </div>
+                  </div>
+
                 </div>
               {:else}
                 <!-- INACTIVE: white pill toggle row + CTA hint below -->
@@ -960,12 +1023,6 @@
     gap: 3px;
   }
 
-  /* EV dark card */
-  .ev-card {
-    background-color: #041714;
-    display: flex;
-    flex-direction: column;
-  }
 
   /* Metric cells inside the 2×2 analysis grid */
   .metric-cell {
