@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   export let installationSizeKw: number;
   export let initialAcKwhPerYear: number;
   export let installationCostTotal: number;
@@ -56,11 +57,11 @@
   $: oSolarHouse   = !hoveredFlow || hoveredFlow==='solar' || hoveredFlow==='eigenverbrauch' || hoveredFlow==='gesamtverbrauch' ? 1 : 0.2;
   $: oSolarBat     = !hoveredFlow || hoveredFlow==='solar' || hoveredFlow==='batterie'                                         ? 1 : 0.2;
   $: oEinspeisung  = !hoveredFlow || hoveredFlow==='solar' || hoveredFlow==='einspeisung' || hoveredFlow==='netz'              ? 1 : 0.2;
-  $: oNetz         = !hoveredFlow || hoveredFlow==='netz'  || hoveredFlow==='gesamtverbrauch'                                  ? 1 : 0.2;
+  $: oNetz         = !hoveredFlow || hoveredFlow==='netz'  || hoveredFlow==='gesamtverbrauch' || hoveredFlow==='solar'         ? 1 : 0.2;
   $: oBatHouse     = !hoveredFlow || hoveredFlow==='batterie' || hoveredFlow==='gesamtverbrauch'                               ? 1 : 0.2;
   $: oEV           = !hoveredFlow || hoveredFlow==='ev' || hoveredFlow==='gesamtverbrauch'                                     ? 1 : 0.2;
   // Boxes
-  $: bSolar          = !hoveredFlow || hoveredFlow==='solar' || hoveredFlow==='einspeisung' || hoveredFlow==='batterie' || hoveredFlow==='eigenverbrauch' || hoveredFlow==='gesamtverbrauch' ? 1 : 0.25;
+  $: bSolar          = !hoveredFlow || hoveredFlow==='solar' || hoveredFlow==='einspeisung' || hoveredFlow==='batterie' || hoveredFlow==='eigenverbrauch' || hoveredFlow==='gesamtverbrauch' || hoveredFlow==='netz' ? 1 : 0.25;
   $: bEinspeisung    = !hoveredFlow || hoveredFlow==='einspeisung' || hoveredFlow==='solar' || hoveredFlow==='netz'                                                                           ? 1 : 0.25;
   $: bNetz           = !hoveredFlow || hoveredFlow==='netz' || hoveredFlow==='gesamtverbrauch' || hoveredFlow==='einspeisung' || hoveredFlow==='solar'                                        ? 1 : 0.25;
   $: bBatterie       = !hoveredFlow || hoveredFlow==='batterie' || hoveredFlow==='solar' || hoveredFlow==='gesamtverbrauch'                                                                   ? 1 : 0.25;
@@ -106,6 +107,7 @@
 
   // ── Monthly savings chart ─────────────────────────────────────────────────
   const MONTHS = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+  const MONTHS_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
   const monthProdMult = [0.25,0.40,0.80,1.10,1.35,1.50,1.55,1.40,1.00,0.65,0.35,0.20];
   const monthConsMult = [1.45,1.35,1.10,0.90,0.75,0.65,0.60,0.65,0.80,1.00,1.25,1.50];
   const PRICE_KWH = 0.29;
@@ -119,7 +121,8 @@
     const mExport = Math.max(0, mProd - mDirect);
     const costWithout = mCons * PRICE_KWH;
     const costWith    = mGrid * PRICE_KWH - mExport * FEED_IN_PRICE;
-    return { label, costWithout, costWith: Math.max(0, costWith), saving: costWithout - Math.max(0, costWith), gridWith: Math.round(mGrid), gridWithout: Math.round(mCons) };
+    const solarPct    = mCons > 0 ? Math.round((mDirect / mCons) * 100) : 0;
+    return { label, costWithout, costWith: Math.max(0, costWith), saving: costWithout - Math.max(0, costWith), gridWith: Math.round(mGrid), gridWithout: Math.round(mCons), solarPct };
   });
   $: maxMonthlyCost = Math.max(...monthlyData.map(d => d.costWithout), 1);
   $: maxMonthlySaving = Math.max(...monthlyData.map(d => d.saving), 1);
@@ -209,7 +212,10 @@
       if (t >= sc.hStart && t <= sc.hEnd) {
         const dt = t < sc.peak ? (t - sc.peak) / sc.wMorn : (t - sc.peak) / sc.wEve;
         const base = curvePeakKw * Math.exp(-dt * dt * 0.7);
-        v = applyDips(base, t, dips);
+        // Fade to exactly 0 at edges over 0.5h window
+        const fadeIn  = Math.min(1, (t - sc.hStart) / 0.5);
+        const fadeOut = Math.min(1, (sc.hEnd - t) / 0.5);
+        v = applyDips(base, t, dips) * fadeIn * fadeOut;
       }
       pts.push({ x: bpx(t), y: bpy(v) });
     }
@@ -289,9 +295,11 @@
   const LW=520,LH=200,LP={t:16,r:12,b:32,l:52};
   const lcW=LW-LP.l-LP.r, lcH=LH-LP.t-LP.b;
   $: lMax=Math.max(...cumWithoutSolar,1);
+  $: lMin=Math.min(...cumWithSolar.filter(v=>v>0), 0);
+  $: lRange = lMax - lMin;
   $: lXS=lcW/Math.max(installationLifeSpan-1,1);
   function lpx(i:number){return LP.l+i*lXS;}
-  function lpy(v:number){return LP.t+lcH-(v/lMax)*lcH;}
+  $: lpy = (v:number) => LP.t+lcH-((v-lMin)/lRange)*lcH;
 
   // ── Line chart hover ─────────────────────────────────────────────────────
   let lHoverYear: number | null = null;
@@ -322,7 +330,7 @@
   $: lFillN =lPathN+` L${lpx(installationLifeSpan-1).toFixed(1)},${(LP.t+lcH).toFixed(1)} L${LP.l.toFixed(1)},${(LP.t+lcH).toFixed(1)} Z`;
   $: lBEX   =breakEvenYear>=0?lpx(breakEvenYear):-999;
   $: lBEY   =breakEvenYear>=0?lpy(cumWithSolar[breakEvenYear]):-999;
-  $: lYLab  =[0,0.333,0.667,1].map(f=>({val:lMax*f,y:lpy(lMax*f)}));
+  $: lYLab  =[0,0.333,0.667,1].map(f=>({val:lMin+lRange*f,y:lpy(lMin+lRange*f)}));
   $: lXLab  =Array.from({length:Math.floor(installationLifeSpan/5)+1},(_,i)=>i*5)
     .filter(y=>y<installationLifeSpan)
     .map(y=>({year:new Date().getFullYear()+y,x:lpx(y)}));
@@ -374,7 +382,7 @@
   })();
   $: indepPct = localBattery ? Math.min(100, roofPct + 15) : roofPct;
   $: batCoverHours = localBattery ? Math.round(indepHours * 0.3) : 0;
-  const EW = 460, EH = 140, EP = { t: 8, r: 12, b: 32, l: 12 };
+  const EW = 460, EH = 110, EP = { t: 8, r: 12, b: 24, l: 12 };
   $: ecH = EH - EP.t - EP.b;
   $: hourlyBars = Array.from({ length: 24 }, (_, h) => {
     const dailySolar = initialAcKwhPerYear / 365;
@@ -386,24 +394,175 @@
     const grid = Math.max(0, cons - solarCovered - batBonus);
     return { h, prod, cons, solarCovered, grid, batBonus };
   });
-  $: maxBarVal = Math.max(...hourlyBars.map(b => Math.max(b.prod, b.grid)), 1);
-  // Dashed line follows consumption curve (what needs to be covered)
-  $: linePoints = hourlyBars.map((b, i) => {
-    const x = EP.l + (i / 23) * (EW - EP.l - EP.r);
-    const y = EP.t + ecH - (b.cons / maxBarVal) * ecH;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+  $: maxBarVal = Math.max(...hourlyBars.map(b => Math.max(b.prod, b.cons)), 1);
+  function ex(h: number) { return EP.l + (h / 23) * (EW - EP.l - EP.r); }
+  function ePath(vals: number[]): string {
+    const pts = vals.map((v, i) => ({ x: ex(i), y: EP.t + ecH - (v / maxBarVal) * ecH }));
+    if (pts.length < 2) return '';
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) {
+      const p0 = pts[Math.max(0, i-2)], p1 = pts[i-1], p2 = pts[i], p3 = pts[Math.min(pts.length-1, i+1)];
+      const cp1x = p1.x+(p2.x-p0.x)/6, cp1y = p1.y+(p2.y-p0.y)/6;
+      const cp2x = p2.x-(p3.x-p1.x)/6, cp2y = p2.y-(p3.y-p1.y)/6;
+      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)} ${cp2x.toFixed(1)} ${cp2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+  $: solarVals  = hourlyBars.map(b => b.prod);
+  $: consVals   = hourlyBars.map(b => b.cons);
+  $: solarLinePath = ePath(solarVals);
+  $: consLinePath  = ePath(consVals);
+  // Closed solar area (to baseline)
+  $: solarAreaPath = solarLinePath
+    + ` L ${ex(23).toFixed(1)} ${(EP.t+ecH).toFixed(1)}`
+    + ` L ${ex(0).toFixed(1)} ${(EP.t+ecH).toFixed(1)} Z`;
+  // Gap zone: where consumption > solar — closed shape between cons line (top) and solar line (bottom)
+  $: gapAreaPath = (() => {
+    // Forward along cons line where cons > solar, then back along solar
+    const pts: string[] = [];
+    let inGap = false;
+    let d = '';
+    for (let i = 0; i < 24; i++) {
+      const overload = consVals[i] > solarVals[i];
+      const cx = ex(i), cy = EP.t + ecH - (consVals[i] / maxBarVal) * ecH;
+      const sx = ex(i), sy = EP.t + ecH - (solarVals[i] / maxBarVal) * ecH;
+      if (overload && !inGap) { d += `M ${cx.toFixed(1)} ${cy.toFixed(1)} `; inGap = true; }
+      else if (overload) { d += `L ${cx.toFixed(1)} ${cy.toFixed(1)} `; }
+      else if (!overload && inGap) {
+        // close gap: go back to solar line
+        for (let j = i - 1; j >= 0; j--) {
+          if (consVals[j] <= solarVals[j]) break;
+          d += `L ${ex(j).toFixed(1)} ${(EP.t + ecH - (solarVals[j] / maxBarVal) * ecH).toFixed(1)} `;
+        }
+        d += 'Z ';
+        inGap = false;
+      }
+    }
+    if (inGap) {
+      for (let j = 23; j >= 0; j--) {
+        if (consVals[j] <= solarVals[j]) break;
+        d += `L ${ex(j).toFixed(1)} ${(EP.t + ecH - (solarVals[j] / maxBarVal) * ecH).toFixed(1)} `;
+      }
+      d += 'Z';
+    }
+    return d;
+  })();
   const barW = 14;
-  function ex(h: number) { return EP.l + (h / 23) * (EW - EP.l - EP.r) - barW / 2; }
   let eHoverH: number | null = null;
-  $: solarStartH  = hourlyBars.findIndex(b => b.prod > b.grid * 0.5);
-  $: solarEndH    = 23 - [...hourlyBars].reverse().findIndex(b => b.prod > b.grid * 0.5);
+  $: solarStartH  = hourlyBars.findIndex(b => b.prod > 0.001);
+  $: solarEndH    = 23 - [...hourlyBars].reverse().findIndex(b => b.prod > 0.001);
+
+  // ── 24h Radial Clock ──────────────────────────────────────────────────────
+  const CCX = 150, CCY = 150, COR = 112, CIR = 89;
+  const CCAP = 5; // inner 3D cap width in px
+  function clockArc(h: number): string {
+    const gap = 1.8;
+    const a1 = ((h / 24) * 360 - 90 + gap / 2) * (Math.PI / 180);
+    const a2 = (((h + 1) / 24) * 360 - 90 - gap / 2) * (Math.PI / 180);
+    const x1 = CCX + COR * Math.cos(a1), y1 = CCY + COR * Math.sin(a1);
+    const x2 = CCX + COR * Math.cos(a2), y2 = CCY + COR * Math.sin(a2);
+    const x3 = CCX + CIR * Math.cos(a2), y3 = CCY + CIR * Math.sin(a2);
+    const x4 = CCX + CIR * Math.cos(a1), y4 = CCY + CIR * Math.sin(a1);
+    return `M${x1.toFixed(2)},${y1.toFixed(2)} A${COR},${COR} 0 0 1 ${x2.toFixed(2)},${y2.toFixed(2)} L${x3.toFixed(2)},${y3.toFixed(2)} A${CIR},${CIR} 0 0 0 ${x4.toFixed(2)},${y4.toFixed(2)}Z`;
+  }
+  // Inner dark cap — thin strip on the inner edge of each block (3D inset shadow effect)
+  function clockArcCap(h: number): string {
+    const gap = 1.8;
+    const innerR = CIR + CCAP;
+    const a1 = ((h / 24) * 360 - 90 + gap / 2) * (Math.PI / 180);
+    const a2 = (((h + 1) / 24) * 360 - 90 - gap / 2) * (Math.PI / 180);
+    const x1 = CCX + innerR * Math.cos(a1), y1 = CCY + innerR * Math.sin(a1);
+    const x2 = CCX + innerR * Math.cos(a2), y2 = CCY + innerR * Math.sin(a2);
+    const x3 = CCX + CIR    * Math.cos(a2), y3 = CCY + CIR    * Math.sin(a2);
+    const x4 = CCX + CIR    * Math.cos(a1), y4 = CCY + CIR    * Math.sin(a1);
+    return `M${x1.toFixed(2)},${y1.toFixed(2)} A${innerR},${innerR} 0 0 1 ${x2.toFixed(2)},${y2.toFixed(2)} L${x3.toFixed(2)},${y3.toFixed(2)} A${CIR},${CIR} 0 0 0 ${x4.toFixed(2)},${y4.toFixed(2)}Z`;
+  }
+  $: peakSolarH = hourlyBars.reduce((best, b, h) => b.prod > hourlyBars[best].prod ? h : best, 12);
+  $: peakClockAngle = (peakSolarH / 24 * 360 - 90) * Math.PI / 180;
+  const clockMidR = (COR + CIR) / 2;
+  let clockHoverH: number | null = null;
+  let clockMounted = false;
+  let clockDisplayH = 0;
+  let clockMountAnimDone = false;
+  onMount(() => {
+    clockMounted = true;
+    const target = indepHours;
+    const dur = 900;
+    setTimeout(() => {
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const p = Math.min((now - t0) / dur, 1);
+        const e = 1 - Math.pow(1 - p, 3); // easeOutCubic
+        clockDisplayH = Math.round(e * target);
+        if (p < 1) requestAnimationFrame(step);
+        else clockDisplayH = target;
+      };
+      requestAnimationFrame(step);
+    }, 400);
+    // After mount animation completes, switch to fast unhover fade
+    setTimeout(() => { clockMountAnimDone = true; }, 1500);
+  });
+  // Solar window outer arc (sunrise → sunset indicator)
+  $: solarWindowArcPath = (() => {
+    const gap = 1.8;
+    const r = COR + CCAP + 4;
+    const a1 = (solarStartH / 24 * 360 - 90 + gap / 2) * (Math.PI / 180);
+    const a2 = ((solarEndH + 1) / 24 * 360 - 90 - gap / 2) * (Math.PI / 180);
+    const x1 = CCX + r * Math.cos(a1), y1 = CCY + r * Math.sin(a1);
+    const x2 = CCX + r * Math.cos(a2), y2 = CCY + r * Math.sin(a2);
+    const spanH = (solarEndH + 1) - solarStartH;
+    return `M${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${spanH > 12 ? 1 : 0} 1 ${x2.toFixed(2)},${y2.toFixed(2)}`;
+  })();
   $: tlStartPct   = (solarStartH / 24) * 100;
   $: tlEndPct     = (solarEndH   / 24) * 100;
   $: tlSpanPct    = tlEndPct - tlStartPct;
 </script>
 
 <style>
+  /* ── Clock reveal animations ────────────────────────────────────────────── */
+  @keyframes segReveal {
+    from { opacity: 0; transform: scale(0.68); }
+    to   { opacity: 1; transform: scale(1);    }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0);    }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .seg-reveal {
+    transform-box: view-box;
+    transform-origin: 150px 150px;
+    animation: segReveal 0.55s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  }
+  .stats-left  { animation: fadeUp 0.5s ease-out 680ms both; }
+  .stats-right { animation: fadeUp 0.5s ease-out 780ms both; }
+  .clock-center-fade  { animation: fadeIn 0.4s ease-out 900ms both; }
+  .clock-unhover-fade { animation: fadeIn 0.18s ease-out 0ms both; }
+  .clock-svg-wrapper  { width: 100%; }
+  /* Segment ring scales on hover — center stays stable */
+  .seg-ring {
+    transform-box: view-box;
+    transform-origin: 150px 150px;
+    transition: transform 0.38s cubic-bezier(0.34, 1.28, 0.64, 1);
+  }
+  .seg-ring-hovered { transform: scale(1.08); }
+  /* Rim depth circles scale faster/further than segments — break away outward */
+  .rim-depth-ring {
+    transform-box: view-box;
+    transform-origin: 150px 150px;
+    transition: transform 0.38s cubic-bezier(0.34, 1.28, 0.64, 1);
+  }
+  .rim-depth-ring-hovered { transform: scale(1.10); }
+  .progress-ring {
+    transform-box: view-box;
+    transform-origin: 150px 150px;
+    transition: transform 0.38s cubic-bezier(0.34, 1.28, 0.64, 1);
+  }
+  .progress-ring-hovered { transform: scale(1.18); }
+
   /*
    * Energy flow line animations
    * All paths are drawn in the direction of energy flow,
@@ -428,13 +587,6 @@
     animation-play-state: paused;
   }
 
-  /* Smooth flow pause: arrows fade-transition when stopping/starting */
-  :global(.flow-svg) {
-    transition: opacity 0.6s ease;
-  }
-  :global(.flow-svg.paused) {
-    opacity: 0.45;
-  }
 
   /* Pause/Play toggle button */
   .flow-toggle-btn {
@@ -1074,9 +1226,9 @@
             <p class="font-switzer text-[13px] text-[#8C8C8C] mt-0.5">Kumulierte Stromkosten über {installationLifeSpan} Jahre</p>
           </div>
           <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:#fefce8; border:1px solid #e5d68a;">
+            <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:rgba(212,160,0,0.08); border:1px solid rgba(212,160,0,0.25);">
               <div class="w-2 h-2 rounded-full" style="background:#D4A000"/>
-              <span class="font-switzer font-medium text-[11px]" style="color:#92680a;">Mit Solar</span>
+              <span class="font-switzer font-medium text-[11px]" style="color:#92400E;">Mit Solar</span>
             </div>
             <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:#fff1f1; border:1px solid #fca5a5;">
               <div class="w-2 h-2 rounded-full" style="background:#F87171"/>
@@ -1089,8 +1241,8 @@
           on:mousemove={handleLineMove} on:mouseleave={() => lHoverYear=null}>
           <defs>
             <linearGradient id="gradSolar" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#FFE572" stop-opacity="0.3"/>
-              <stop offset="100%" stop-color="#FFE572" stop-opacity="0.02"/>
+              <stop offset="0%" stop-color="#FFE572" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="#FFE572" stop-opacity="0.01"/>
             </linearGradient>
             <linearGradient id="gradNoSolar" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="#F87171" stop-opacity="0.15"/>
@@ -1193,7 +1345,7 @@
         <!-- Header -->
         <div class="shrink-0">
           <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Monatliche Einsparung</p>
-          <p class="font-switzer text-[12px] text-[#8C8C8C] mt-0.5">weniger ans Netz im Ø</p>
+          <p class="font-switzer text-[12px] text-[#8C8C8C] mt-0.5">Im Vergleich zu ohne Solaranlage</p>
         </div>
 
         <!-- Chart -->
@@ -1203,7 +1355,7 @@
           <defs>
             <linearGradient id="gradMS" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="#02B597" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#02B597" stop-opacity="0.45"/>
+              <stop offset="100%" stop-color="#02B597" stop-opacity="0.35"/>
             </linearGradient>
             <filter id="mTipShadow" x="-30%" y="-30%" width="160%" height="160%">
               <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.22"/>
@@ -1248,230 +1400,273 @@
               <text x={tipX+34} y={tipY+70} font-size="12" fill="#666" font-family="Switzer,sans-serif">Ohne Solar</text>
               <text x={tipX+tipW-16} y={tipY+70} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{fmt(d.gridWithout)} kWh</text>
               <!-- Pill -->
-              <rect x={tipX+16} y={tipY+82} width={tipW-32} height="26" rx="8" fill="rgba(2,181,151,0.12)"/>
-              <text x={tipX+tipW/2} y={tipY+99} text-anchor="middle" font-size="12" font-weight="700" fill="#02B597" font-family="Switzer,sans-serif">↓ {pctSaved}% weniger vom Netz</text>
+              <rect x={tipX+16} y={tipY+82} width={tipW-32} height="26" rx="8" fill="rgba(255,208,0,0.12)"/>
+              <text x={tipX+tipW/2} y={tipY+99} text-anchor="middle" font-size="12" font-weight="700" fill="#FFD000" font-family="Switzer,sans-serif">↓ {pctSaved}% weniger vom Netz</text>
             </g>
           {/if}
         </svg>
 
-        <!-- Bottom: value + savings pill -->
-        <div class="flex items-end justify-between pt-1 border-t border-[#f0ece6]">
-          <div>
+        <!-- Bottom: value -->
+        <div class="pt-1 border-t border-[#f0ece6]">
+          <div class="flex items-baseline gap-2.5">
             <p class="font-switzer font-semibold text-[34px] text-[#030303] leading-none tracking-[-1.5px]">
               CHF {fmt(mHoverIdx !== null ? monthlyData[mHoverIdx].saving : avgMonthlySaving)}
             </p>
-            <p class="font-switzer text-[11px] text-[#8C8C8C] mt-1">
-              {mHoverIdx !== null ? MONTH_FULL[mHoverIdx] : 'Ø pro Monat'}
-            </p>
+            <span class="font-switzer text-[12px] font-semibold text-[#02B597]">↓ gespart</span>
           </div>
-          <div class="px-3 py-1.5 rounded-full mb-1" style="background:rgba(2,181,151,0.1);">
-            <p class="font-switzer text-[12px] font-semibold text-[#02B597]">↓ gespart</p>
-          </div>
+          <p class="font-switzer text-[11px] text-[#8C8C8C] mt-1">
+            {mHoverIdx !== null ? MONTH_FULL[mHoverIdx] : 'Ø pro Monat'}
+          </p>
         </div>
       </div>
 
       <!-- ── Eigenverbrauch + Energieunabhängigkeit (combined) ── -->
-      <div class="rounded-[16px] p-5 flex flex-col gap-4 col-span-2" style="background:white; border:1px solid #ede8e0;">
-        <!-- Header & Legend -->
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-3">
-              <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Eigenverbrauch & Unabhängigkeit</p>
-              {#if indepHours > 0}
-                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#0EA5E9]/20" style="background:rgba(14,165,233,0.12); box-shadow: 0 4px 6px -1px rgba(14,165,233,0.08);">
-                  <div class="w-2 h-2 rounded-full bg-[#0EA5E9]"></div>
-                  <p class="font-switzer font-bold text-[13px] text-[#0EA5E9] leading-none mt-[1px]">{indepHours}h / Tag unabhängig</p>
-                </div>
-              {/if}
-            </div>
-            <p class="font-switzer text-[12px] text-[#8C8C8C] mt-1.5">Ihr Strom vom Dach — wieviel & wann</p>
-          </div>
-          <!-- Legend Mini -->
-          <div class="flex items-center gap-3 mt-0.5">
-            <div class="flex items-center gap-1.5">
-              <div class="w-2.5 h-2.5 rounded-[3px]" style="background:#38BDF8;"></div>
-              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Solar</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-2.5 h-2.5 rounded-[3px]" style="background:#B0A89E;"></div>
-              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Netz</span>
-            </div>
-            {#if localBattery}
-            <div class="flex items-center gap-1.5">
-              <div class="w-2.5 h-2.5 rounded-[3px]" style="background:#FBBF24;"></div>
-              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Batterie</span>
-            </div>
-            {/if}
-            <div class="flex items-center gap-1.5">
-              <svg width="14" height="6" viewBox="0 0 14 6"><line x1="0" y1="3" x2="14" y2="3" stroke="#F59E0B" stroke-width="2" stroke-dasharray="3 3"/></svg>
-              <span class="font-switzer font-medium text-[11px] text-[#8C8C8C]">Verbrauch</span>
-            </div>
-          </div>
+      <div class="rounded-[16px] p-6 flex flex-col gap-5 col-span-2" style="background:white; border:1px solid #ede8e0;">
+
+        <!-- Header -->
+        <div>
+          <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Eigenverbrauch & Unabhängigkeit</p>
+          <p class="font-switzer text-[12px] text-[#8C8C8C] mt-1.5">Wann das Haus vom Netz unabhängig ist — Stunde für Stunde</p>
         </div>
 
-        <!-- Two-column: donut left, chart right -->
-        <div class="flex gap-8 items-start mt-2">
-          <!-- Left: donut gauge -->
-          <div class="flex flex-col items-center gap-4 shrink-0" style="width:160px;">
-            <svg viewBox="0 0 220 76" class="w-full" style="overflow:visible; cursor:default;"
-              on:mouseenter={() => donutHovered = true}
-              on:mouseleave={() => donutHovered = false}>
+        <!-- Three-column layout: stats | clock hero | stats -->
+        <div class="flex gap-6 items-center flex-1">
+
+          <!-- LEFT: Eigenverbrauch + Jahresverbrauch -->
+          <div class="stats-left flex-1 flex flex-col gap-6 justify-center self-stretch pl-1">
+
+            <div class="flex flex-col gap-2">
+              <p class="font-switzer text-[10px] font-medium text-[#B0AAA4] uppercase tracking-[1px]">Eigenverbrauch</p>
+              <div class="flex items-baseline gap-1 leading-none">
+                <span class="font-switzer font-bold text-[44px] text-[#111] leading-none tracking-[-2.5px]">{roofPct}</span>
+                <span class="font-switzer font-semibold text-[18px] text-[#C8C2BA] leading-none">%</span>
+              </div>
+              <div class="h-[4px] rounded-full overflow-hidden" style="background:#EDE8E1;">
+                <div class="h-full rounded-full" style="width:{roofPct}%; background:#FFD000; transition:width 0.8s cubic-bezier(0.4,0,0.2,1);"/>
+              </div>
+              <p class="font-switzer text-[11px] text-[#C8C2BA]">vom eigenen Dach</p>
+            </div>
+
+            <div class="h-px" style="background:#F0EDE8;"></div>
+
+            <div class="flex flex-col gap-2">
+              <p class="font-switzer text-[10px] font-medium text-[#B0AAA4] uppercase tracking-[1px]">Jahresverbrauch</p>
+              {#if solarUsed + gridImport > 0}
+                {@const sW = Math.round(solarUsed/(solarUsed+gridImport)*100)}
+                <div class="flex flex-col gap-2.5">
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-1.5">
+                        <div class="w-1.5 h-1.5 rounded-full" style="background:#FFD000;"/>
+                        <span class="font-switzer text-[11px] text-[#8C8C8C]">Solar</span>
+                      </div>
+                      <span class="font-switzer font-semibold text-[12px] text-[#111] tracking-[-0.5px]">{fmt(solarUsed)} kWh</span>
+                    </div>
+                    <div class="h-[3px] rounded-full overflow-hidden" style="background:#EDE8E1;">
+                      <div class="h-full rounded-full" style="width:{sW}%; background:#FFD000;"/>
+                    </div>
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-1.5">
+                        <div class="w-1.5 h-1.5 rounded-full" style="background:#C8C2BA;"/>
+                        <span class="font-switzer text-[11px] text-[#8C8C8C]">Netz</span>
+                      </div>
+                      <span class="font-switzer font-semibold text-[12px] text-[#111] tracking-[-0.5px]">{fmt(gridImport)} kWh</span>
+                    </div>
+                    <div class="h-[3px] rounded-full overflow-hidden" style="background:#EDE8E1;">
+                      <div class="h-full rounded-full" style="width:{100-sW}%; background:#C8C2BA;"/>
+                    </div>
+                  </div>
+                </div>
+              {/if}
+            </div>
+
+          </div><!-- /left stats -->
+
+          <!-- CENTER: Clock hero -->
+          <div class="flex-shrink-0 w-[320px] flex flex-col justify-center items-center gap-3">
+            <div class="clock-svg-wrapper">
+            <svg viewBox="0 0 300 300" style="width:100%; overflow:visible; cursor:crosshair;"
+              on:mousemove={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                const mx = (e.clientX - r.left) * (300 / r.width) - CCX;
+                const my = (e.clientY - r.top) * (300 / r.height) - CCY;
+                const dist = Math.sqrt(mx * mx + my * my);
+                if (dist >= CIR - 10 && dist <= COR + 36) {
+                  const ang = ((Math.atan2(my, mx) * 180 / Math.PI) + 90 + 360) % 360;
+                  clockHoverH = Math.floor(ang / 15);
+                } else { clockHoverH = null; }
+              }}
+              on:mouseleave={() => clockHoverH = null}>
               <defs>
-                <filter id="donutGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#FFE572" flood-opacity="0.5"/>
+                <!-- Center circle inset shadow — ring casts shadow inward -->
+                <filter id="clockCenterShadow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="3" stdDeviation="9" flood-color="#000" flood-opacity="0.10"/>
                 </filter>
               </defs>
-              <path d={arcBg} fill="none" stroke="#F0EDEA" stroke-width={DSW} stroke-linecap="round"/>
-              {#if roofPct > 0}
-                <path d={arcRoof} fill="none" stroke="#FFE572" stroke-width={DSW} stroke-linecap="round"
-                  filter={donutHovered ? 'url(#donutGlow)' : undefined}
-                  style="transition:filter 0.25s ease;"/>
+
+              <!-- Subtle outer tick marks — static, outside scaling group -->
+              {#each Array(24) as _, h}
+                {@const ta = (h / 24 * 360 - 90) * Math.PI / 180}
+                {@const isCard = h % 6 === 0}
+                <line
+                  x1={CCX + (COR + 5)  * Math.cos(ta)}
+                  y1={CCY + (COR + 5)  * Math.sin(ta)}
+                  x2={CCX + (COR + (isCard ? 13 : 9)) * Math.cos(ta)}
+                  y2={CCY + (COR + (isCard ? 13 : 9)) * Math.sin(ta)}
+                  stroke={isCard ? '#C8C2BA' : '#DDD8D2'}
+                  stroke-width={isCard ? 1.5 : 1}
+                  stroke-linecap="round"/>
+              {/each}
+
+              <!-- Segments + solar arc — scale together on hover -->
+              <g class="seg-ring" class:seg-ring-hovered={clockHoverH !== null}>
+              <!-- Solar window arc -->
+              <path d={solarWindowArcPath}
+                fill="none" stroke="#FFD000" stroke-width="2"
+                stroke-linecap="round" opacity="0.3"/>
+              {#each hourlyBars as b, h}
+                {@const isIndep   = b.grid < 0.005}
+                {@const isPartial = b.prod > 0.001 && !isIndep}
+                {@const dimmed    = clockHoverH !== null && clockHoverH !== h}
+                <g class="seg-reveal" style="animation-delay: {h * 28}ms;">
+                  {#if isIndep}
+                    {@const intensity = 0.35 + 0.65 * Math.min(1, b.prod / (maxBarVal * 0.55))}
+                    <!-- main face -->
+                    <path d={clockArc(h)} fill="#FFD000"
+                      opacity={dimmed ? 0.18 : intensity}
+                      style="transition:opacity 0.12s;"/>
+                    <!-- inner 3D cap — subtle shadow on inner edge -->
+                    <path d={clockArcCap(h)} fill="#A07800"
+                      opacity={dimmed ? 0.02 : intensity * 0.07}
+                      style="transition:opacity 0.12s;"/>
+                  {:else if isPartial}
+                    {@const softness = 0.18 + 0.22 * Math.min(1, b.prod / (maxBarVal * 0.4))}
+                    <path d={clockArc(h)} fill="#FFD000"
+                      opacity={dimmed ? 0.06 : softness}
+                      style="transition:opacity 0.12s;"/>
+                    <path d={clockArcCap(h)} fill="#A07800"
+                      opacity={dimmed ? 0.01 : softness * 0.07}
+                      style="transition:opacity 0.12s;"/>
+                  {:else}
+                    <!-- main face -->
+                    <path d={clockArc(h)} fill="#EDE8E1"/>
+                    <!-- inner 3D cap — subtle shadow on inner edge -->
+                    <path d={clockArcCap(h)} fill="#B8B2AA" opacity="0.10"/>
+                  {/if}
+                </g>
+              {/each}
+              </g>
+
+              <!-- Hovered segment highlight -->
+              {#if clockHoverH !== null}
+                <path d={clockArc(clockHoverH)} fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="1.5"/>
               {/if}
-              <text x={DCX} y={DCY - 14} text-anchor="middle" font-size="11" fill="#aaa" font-family="Switzer,sans-serif" letter-spacing="1">VOM DACH</text>
-              <text x={DCX} y={DCY + 18} text-anchor="middle" font-size="36" font-weight="700" fill="#030303" font-family="Switzer,sans-serif" letter-spacing="-1">{roofPct}%</text>
-            </svg>
-            <!-- Colored KPI Boxes (Mix aesthetics) -->
-            <div class="w-full flex flex-col gap-2.5 mt-2">
-              <div class="flex items-center justify-between py-2.5 px-3 rounded-[12px] border border-[#FDE047]/40" style="background:#FEFCE8;">
-                <div class="flex items-center gap-2">
-                  <div class="w-2.5 h-2.5 rounded-full bg-[#FFE572] shrink-0 border border-[#FDE047]/50"/>
-                  <span class="font-switzer font-semibold text-[12px] text-[#92400E]">Solar</span>
-                </div>
-                <span class="font-switzer font-bold text-[14px] text-[#030303] tracking-[-0.2px]">{fmt(solarUsed)} <span class="text-[12px] font-medium text-[#92400E]">kWh</span></span>
-              </div>
-              <div class="flex items-center justify-between py-2.5 px-3 rounded-[12px] border border-[#BFDBFE]/40" style="background:#F0F4FF;">
-                <div class="flex items-center gap-2">
-                  <div class="w-2.5 h-2.5 rounded-full bg-[#66A3FF] shrink-0 border border-[#3B82F6]/30"/>
-                  <span class="font-switzer font-semibold text-[12px] text-[#1D4ED8]">Netz</span>
-                </div>
-                <span class="font-switzer font-bold text-[14px] text-[#030303] tracking-[-0.2px]">{fmt(gridImport)} <span class="text-[12px] font-medium text-[#1D4ED8]">kWh</span></span>
-              </div>
-            </div>
-          </div>
 
-          <!-- Divider -->
-          <div class="self-stretch w-px shrink-0" style="background:#f0ece6;"></div>
+              <!-- Cardinal labels -->
+              <text x="150" y="9"   text-anchor="middle" font-size="10" fill="#C8C2BA" font-family="Switzer,sans-serif">0h</text>
+              <text x="295" y="154" text-anchor="start"  font-size="10" fill="#C8C2BA" font-family="Switzer,sans-serif">6h</text>
+              <text x="150" y="297" text-anchor="middle" font-size="10" fill="#C8C2BA" font-family="Switzer,sans-serif">12h</text>
+              <text x="5"   y="154" text-anchor="end"    font-size="10" fill="#C8C2BA" font-family="Switzer,sans-serif">18h</text>
 
-          <!-- Right: 24h chart -->
-          <div class="flex-1 flex flex-col gap-2 min-w-0">
 
-        <!-- 24h chart -->
-        <svg viewBox="0 0 {EW} {EH}" class="w-full" style="overflow:visible; cursor:crosshair;"
-          on:mousemove={(e) => { const r=e.currentTarget.getBoundingClientRect(); const x=(e.clientX-r.left)*(EW/r.width); eHoverH=Math.max(0,Math.min(23,Math.round(x/(EW/23)))); }}
-          on:mouseleave={() => eHoverH=null}>
-          <defs>
-            <linearGradient id="eGradSolar" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#38BDF8" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#0EA5E9" stop-opacity="0.5"/>
-            </linearGradient>
-            <linearGradient id="eGradGrid" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#B0A89E" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#B0A89E" stop-opacity="0.4"/>
-            </linearGradient>
-            <linearGradient id="eGradBat" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#FBBF24" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#FBBF24" stop-opacity="0.4"/>
-            </linearGradient>
-            <filter id="eTipShadow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.22"/>
-            </filter>
-          </defs>
 
-          <!-- Baseline -->
-          <line x1={EP.l} y1={EP.t+ecH} x2={EW-EP.r} y2={EP.t+ecH} stroke="#EDE8E0" stroke-width="1"/>
+              <!-- Depth rim: bevel rings only — scale faster on hover -->
+              <g class="rim-depth-ring" class:rim-depth-ring-hovered={clockHoverH !== null}>
+                <circle cx="150" cy="150" r="83" fill="none" stroke={clockHoverH !== null ? 'rgba(0,0,0,0.02)' : 'rgba(0,0,0,0.03)'} stroke-width="1.5" style="transition: stroke 0.2s ease;"/>
+                <circle cx="150" cy="150" r="84.5" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1"/>
+              </g>
 
-          {#each hourlyBars as b}
-            {@const x = ex(b.h)}
-            {@const prodH  = (b.prod  / maxBarVal) * ecH}
-            {@const gridH  = (b.grid  / maxBarVal) * ecH}
-            {@const batH   = localBattery && b.batBonus > 0 ? (b.batBonus / maxBarVal) * ecH : 0}
-            {@const active = eHoverH === null || eHoverH === b.h}
-            <!-- Grey: grid import bar -->
-            {#if gridH > 0.5}
-              <rect x={x} y={EP.t + ecH - gridH} width={barW} height={gridH}
-                fill="url(#eGradGrid)" rx="3"
-                opacity={active ? 1 : 0.15} style="transition:opacity 0.15s;"/>
-            {/if}
-            <!-- Green: solar production bar -->
-            {#if prodH > 0.5}
-              <rect x={x} y={EP.t + ecH - prodH} width={barW} height={prodH}
-                fill="url(#eGradSolar)" rx="3"
-                opacity={active ? 1 : 0.15} style="transition:opacity 0.15s;"/>
-            {/if}
-            <!-- Yellow: battery bonus bar -->
-            {#if batH > 0.5}
-              <rect x={x} y={EP.t + ecH - prodH - batH} width={barW} height={batH}
-                fill="url(#eGradBat)" rx="3"
-                opacity={active ? 1 : 0.15} style="transition:opacity 0.15s;"/>
-            {/if}
-            <!-- Hour label every 6h -->
-            {#if b.h % 6 === 0}
-              <text x={x + barW/2} y={EH - 2} text-anchor="middle" font-size="11" fill="#C0BAB2" font-family="Switzer,sans-serif">{b.h}h</text>
-            {/if}
-          {/each}
+              <!-- Center face (inset well) — rendered before progress arc so arc appears on top -->
+              <circle cx="150" cy="150" r="82" fill="white" filter="url(#clockCenterShadow)"/>
 
-          <!-- Consumption curve — glowing smooth line -->
-          <defs>
-            <filter id="glowLine" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#F59E0B" flood-opacity="0.4"/>
-            </filter>
-          </defs>
-          <polyline points={linePoints} fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="4 4" filter="url(#glowLine)" opacity="1"/>
+              <!-- Progress track + yellow arc — own group, scales more than bevel rings -->
+              <g class="progress-ring" class:progress-ring-hovered={clockHoverH !== null}>
+                <circle cx="150" cy="150" r="68" fill="none" stroke={clockHoverH !== null ? '#F8F5F2' : '#F4F0EC'} stroke-width="5" style="transition: stroke 0.2s ease;"/>
+                {#if indepHours > 0}
+                  {@const ir  = 68}
+                  {@const ia1 = -Math.PI / 2}
+                  {@const ia2 = ia1 + (indepHours / 24) * 2 * Math.PI}
+                  {@const circ = 2 * Math.PI * ir}
+                  {@const arcLen = (indepHours / 24) * circ}
+                  <path
+                    d={`M ${CCX + ir * Math.cos(ia1)} ${CCY + ir * Math.sin(ia1)} A ${ir} ${ir} 0 ${indepHours >= 12 ? 1 : 0} 1 ${CCX + ir * Math.cos(ia2)} ${CCY + ir * Math.sin(ia2)}`}
+                    fill="none" stroke="#FFD000" stroke-width="5" stroke-linecap="round"
+                    stroke-dasharray={circ}
+                    stroke-dashoffset={clockMounted ? circ - arcLen : circ}
+                    opacity={clockHoverH !== null ? 0 : 1}
+                    style="transition: stroke-dashoffset 1.1s cubic-bezier(0.4,0,0.2,1) 500ms, opacity 0.2s ease;"/>
+                {/if}
+              </g>
 
-          <!-- Integrated Timeline Bar (Tägliche Netzunabhängigkeit) -->
-          <g transform="translate(0, {EP.t + ecH + 10})">
-            <!-- Background track -->
-            <rect x={EP.l} y="0" width={EW - EP.l - EP.r} height="8" rx="4" fill="#EDE8E0"/>
-            
-            <!-- Independence active span -->
-            <rect x={EP.l + (tlStartPct/100)*(EW-EP.l-EP.r)} y="0" width={(tlSpanPct/100)*(EW-EP.l-EP.r)} height="8" rx="4" fill="url(#eGradSolar)"/>
-            
-            {#if localBattery}
-              <rect x={EP.l + (17/24)*(EW-EP.l-EP.r)} y="0" width={(5/24)*(EW-EP.l-EP.r)} height="8" rx="4" fill="url(#eGradBat)"/>
-            {/if}
-            
-            <!-- Ticks -->
-            {#each [6,12,18] as tick}
-              <line x1={EP.l + (tick/24)*(EW-EP.l-EP.r)} y1="0" x2={EP.l + (tick/24)*(EW-EP.l-EP.r)} y2="8" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.5"/>
-            {/each}
-          </g>
-
-          <!-- Hover tooltip -->
-          {#if eHoverH !== null}
-            {@const b = hourlyBars[eHoverH]}
-            {@const tx = ex(b.h) + barW/2}
-            {@const tipW = 190}
-            {@const tipH = localBattery ? 118 : 96}
-            {@const tipX = Math.min(Math.max(tx - tipW/2, 0), EW - tipW)}
-            {@const tipY = -tipH - 8}
-            <line x1={tx} y1={EP.t} x2={tx} y2={EP.t+ecH} stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
-            <g class="tip-enter">
-              <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="13" fill="#0e0e0e" filter="url(#eTipShadow)"/>
-              <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="13" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-              <text x={tipX+14} y={tipY+20} font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{b.h}:00 – {b.h+1}:00 Uhr</text>
-              <line x1={tipX+14} y1={tipY+28} x2={tipX+tipW-14} y2={tipY+28} stroke="#222" stroke-width="1"/>
-              <circle cx={tipX+22} cy={tipY+42} r="4" fill="#02B597"/>
-              <text x={tipX+32} y={tipY+46} font-size="12" fill="#888" font-family="Switzer,sans-serif">Solarproduktion</text>
-              <text x={tipX+tipW-14} y={tipY+46} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{(b.prod * 1000).toFixed(0)} Wh</text>
-              <circle cx={tipX+22} cy={tipY+62} r="4" fill="#B0A89E"/>
-              <text x={tipX+32} y={tipY+66} font-size="12" fill="#888" font-family="Switzer,sans-serif">Netzbezug</text>
-              <text x={tipX+tipW-14} y={tipY+66} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{(b.grid * 1000).toFixed(0)} Wh</text>
-              {#if localBattery && b.batBonus > 0}
-                <circle cx={tipX+22} cy={tipY+82} r="4" fill="#FBBF24"/>
-                <text x={tipX+32} y={tipY+86} font-size="12" fill="#888" font-family="Switzer,sans-serif">Batterie</text>
-                <text x={tipX+tipW-14} y={tipY+86} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{(b.batBonus * 1000).toFixed(0)} Wh</text>
-                <rect x={tipX+14} y={tipY+100} width={tipW-28} height="12" rx="3" fill="rgba(251,191,36,0.1)"/>
-                <text x={tipX+tipW/2} y={tipY+109} text-anchor="middle" font-size="9" fill="#FBBF24" font-family="Switzer,sans-serif">Speicher aktiv</text>
+              <!-- Center content -->
+              {#if clockHoverH === null}
+                <g class={clockMountAnimDone ? 'clock-unhover-fade' : 'clock-center-fade'}>
+                  <text x="150" y="154" text-anchor="middle" font-family="Switzer,sans-serif">
+                    <tspan font-size="52" font-weight="700" fill="#030303" letter-spacing="-2.5">{clockDisplayH}</tspan><tspan font-size="20" font-weight="600" fill="#8C8C8C" dy="-15" dx="3">h</tspan>
+                  </text>
+                  <text x="150" y="170" text-anchor="middle" font-size="10" fill="#C8C2BA" font-family="Switzer,sans-serif">unabhängig / Tag</text>
+                </g>
               {:else}
-                <rect x={tipX+14} y={tipY+78} width={tipW-28} height="12" rx="3" fill="rgba(2,181,151,0.1)"/>
-                <text x={tipX+tipW/2} y={tipY+87} text-anchor="middle" font-size="9" fill="#02B597" font-family="Switzer,sans-serif">{b.grid < 0.005 ? '✓ Netzunabhängig' : 'Teilweise gedeckt'}</text>
+                {@const bh = hourlyBars[clockHoverH]}
+                {@const isIndepH   = bh.grid < 0.005}
+                {@const isPartialH = bh.prod > 0.001 && !isIndepH}
+                <!-- Time -->
+                <text x="150" y="105" text-anchor="middle" font-size="10.5" font-weight="600" fill="#8C8480" letter-spacing="0.4" font-family="Switzer,sans-serif">{clockHoverH}:00 – {clockHoverH + 1}:00 Uhr</text>
+                <line x1="114" y1="113" x2="186" y2="113" stroke="#E8E2DC" stroke-width="1"/>
+                <!-- Solar label + value -->
+                <text x="150" y="126" text-anchor="middle" font-size="9.5" fill="#A09890" letter-spacing="0.6" font-family="Switzer,sans-serif">SOLAR</text>
+                <text x="150" y="143" text-anchor="middle" font-size="18" font-weight="700" fill="#111" letter-spacing="-0.8" font-family="Switzer,sans-serif">{bh.prod.toFixed(1)} kWh</text>
+                <line x1="114" y1="150" x2="186" y2="150" stroke="#E8E2DC" stroke-width="1"/>
+                <!-- Netz label + value -->
+                <text x="150" y="163" text-anchor="middle" font-size="9.5" fill="#A09890" letter-spacing="0.6" font-family="Switzer,sans-serif">NETZ</text>
+                <text x="150" y="180" text-anchor="middle" font-size="18" font-weight="700" fill="#111" letter-spacing="-0.8" font-family="Switzer,sans-serif">{bh.grid.toFixed(1)} kWh</text>
+                <!-- Status pill -->
+                <rect x="108" y="193" width="84" height="17" rx="8.5"
+                  fill={isIndepH ? 'rgba(255,208,0,0.25)' : isPartialH ? 'rgba(255,208,0,0.15)' : 'rgba(0,0,0,0.06)'}/>
+                <text x="150" y="205.5" text-anchor="middle" font-size="9.5" font-weight="600" font-family="Switzer,sans-serif"
+                  fill={isIndepH ? '#7A3500' : isPartialH ? '#B85C00' : '#807870'}>
+                  {isIndepH ? '✓ Netzunabhängig' : isPartialH ? '~ Teils solar' : '↑ Netzbezug'}
+                </text>
               {/if}
-            </g>
-          {/if}
-        </svg>
+            </svg>
 
-        </div><!-- /right column -->
-        </div><!-- /flex row -->
+
+            </div><!-- /clock-svg-wrapper -->
+          </div><!-- /clock hero -->
+
+          <!-- RIGHT: Sonnenpeak + Einspeisung -->
+          <div class="stats-right flex-1 flex flex-col gap-6 justify-center self-stretch pr-1">
+
+            <div class="flex flex-col gap-2">
+              <p class="font-switzer text-[10px] font-medium text-[#B0AAA4] uppercase tracking-[1px]">Sonnenpeak</p>
+              <div class="flex items-baseline gap-1 leading-none">
+                <span class="font-switzer font-bold text-[44px] text-[#111] leading-none tracking-[-2.5px]">{peakSolarH}</span>
+                <span class="font-switzer font-semibold text-[16px] text-[#C8C2BA] leading-none">:00 Uhr</span>
+              </div>
+              <div class="relative h-[4px] rounded-full" style="background:linear-gradient(to right, #EDE8E1 0%, #FFD000 {peakSolarH/24*100}%, #EDE8E1 100%);">
+                <div class="absolute top-1/2 w-[9px] h-[9px] rounded-full border-[2px] border-white"
+                  style="left:{peakSolarH/24*100}%; transform:translate(-50%,-50%); background:#FFD000; box-shadow:0 0 0 2px rgba(255,208,0,0.3);"/>
+              </div>
+              <p class="font-switzer text-[11px] text-[#C8C2BA]">optimale Lastzeit</p>
+            </div>
+
+            <div class="h-px" style="background:#F0EDE8;"></div>
+
+            <div class="flex flex-col gap-2">
+              <p class="font-switzer text-[10px] font-medium text-[#B0AAA4] uppercase tracking-[1px]">Einspeisung</p>
+              <div class="flex items-baseline gap-1 leading-none">
+                <span class="font-switzer font-bold text-[44px] text-[#111] leading-none tracking-[-2.5px]">{fmt(einspeisKwh)}</span>
+                <span class="font-switzer font-semibold text-[16px] text-[#C8C2BA] leading-none">kWh</span>
+              </div>
+              <p class="font-switzer text-[11px] text-[#C8C2BA]">zurück ins Netz / Jahr</p>
+            </div>
+
+          </div><!-- /right stats -->
+
+        </div><!-- /three-column layout -->
+
       </div><!-- /combined card -->
 
       <!-- ── KPI: Installationsdauer ── -->
