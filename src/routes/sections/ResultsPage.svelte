@@ -145,6 +145,30 @@
   let mHoverIdx: number | null = null;
   const MONTH_FULL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
+  // ── Financing calculator ──────────────────────────────────────────────────
+  let loanType: 'hypothek' | 'kredit' = 'hypothek';
+  let loanRate = 1.5;
+  let loanYears = 20;
+  function setLoanType(t: 'hypothek' | 'kredit') {
+    loanType = t;
+    if (t === 'hypothek') { loanRate = 1.5; loanYears = 20; }
+    else { loanRate = 3.5; loanYears = 8; }
+  }
+  const loanTypeOptions: {k: 'hypothek' | 'kredit', l: string}[] = [{k:'hypothek', l:'Hypothek'}, {k:'kredit', l:'Kredit'}];
+  const RATE_MIN = 0.5, RATE_MAX = 8;
+  const YEAR_MIN = 5, YEAR_MAX = 25;
+  $: rateFillPct = ((loanRate - RATE_MIN) / (RATE_MAX - RATE_MIN)) * 100;
+  $: yearFillPct = ((loanYears - YEAR_MIN) / (YEAR_MAX - YEAR_MIN)) * 100;
+  $: loanPrincipal = Math.max(0, installationCostTotal - solarIncentives);
+  $: loanMonthlyRate = loanRate / 100 / 12;
+  $: loanNMonths = loanYears * 12;
+  $: monthlyPayment = loanMonthlyRate > 0
+    ? loanPrincipal * loanMonthlyRate / (1 - Math.pow(1 + loanMonthlyRate, -loanNMonths))
+    : loanPrincipal / loanNMonths;
+  $: hoverSaving = mHoverIdx !== null ? monthlyData[mHoverIdx].saving : avgMonthlySaving;
+  $: hoverNet = hoverSaving - monthlyPayment;
+  $: paymentLinePct = mMaxCost > 0 ? Math.min((monthlyPayment / mMaxCost) * 75, 75) : 0;
+
   // ── 24h hourly chart ──────────────────────────────────────────────────────
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const baseConsProfile = [
@@ -334,8 +358,24 @@
   $: lPathN =cumWithoutSolar.map((v,i)=>`${i===0?'M':'L'}${lpx(i).toFixed(1)},${lpy(v).toFixed(1)}`).join(' ');
   $: lFillS =lPathS+` L${lpx(installationLifeSpan-1).toFixed(1)},${(LP.t+lcH).toFixed(1)} L${LP.l.toFixed(1)},${(LP.t+lcH).toFixed(1)} Z`;
   $: lFillN =lPathN+` L${lpx(installationLifeSpan-1).toFixed(1)},${(LP.t+lcH).toFixed(1)} L${LP.l.toFixed(1)},${(LP.t+lcH).toFixed(1)} Z`;
-  $: lBEX   =breakEvenYear>=0?lpx(breakEvenYear):-999;
-  $: lBEY   =breakEvenYear>=0?lpy(cumWithSolar[breakEvenYear]):-999;
+  $: lBEFrac = (() => {
+    if (breakEvenYear < 0) return -1;
+    if (breakEvenYear === 0) return 0;
+    const y0 = breakEvenYear - 1;
+    const s0 = cumWithSolar[y0],    s1 = cumWithSolar[breakEvenYear];
+    const n0 = cumWithoutSolar[y0], n1 = cumWithoutSolar[breakEvenYear];
+    const denom = (s1 - s0) - (n1 - n0);
+    return y0 + (denom !== 0 ? Math.max(0, Math.min(1, (n0 - s0) / denom)) : 0.5);
+  })();
+  $: lBEX = lBEFrac >= 0 ? lpx(lBEFrac) : -999;
+  $: lBEY = (() => {
+    if (lBEFrac < 0) return -999;
+    const y0 = Math.floor(lBEFrac);
+    const y1 = Math.min(y0 + 1, cumWithSolar.length - 1);
+    const t = lBEFrac - y0;
+    return lpy(cumWithSolar[y0] + t * (cumWithSolar[y1] - cumWithSolar[y0]));
+  })();
+  $: lHoverNearBE = lHoverYear !== null && breakEvenYear >= 0 && Math.abs(lHoverX - lBEX) < 15;
   $: lYLab  =[0,0.333,0.667,1].map(f=>({val:lMin+lRange*f,y:lpy(lMin+lRange*f)}));
   $: lXLab  =Array.from({length:Math.floor(installationLifeSpan/5)+1},(_,i)=>i*5)
     .filter(y=>y<installationLifeSpan)
@@ -1282,211 +1322,8 @@
         </div>
       </div>
 
-      <!-- ── Line chart: Kostenvergleich ── -->
-      <div class="col-span-3 rounded-[16px] p-6 flex flex-col gap-5" style="background:white; border:1px solid #ede8e0;">
-        <!-- Header -->
-        <div class="flex items-start justify-between">
-          <div>
-            <h3 class="font-switzer font-semibold text-[17px] text-[#030303] tracking-[-0.4px]">Kostenvergleich</h3>
-            <p class="font-switzer text-[13px] text-[#8C8C8C] mt-0.5">Kumulierte Stromkosten über {installationLifeSpan} Jahre</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:rgba(212,160,0,0.08); border:1px solid rgba(212,160,0,0.25);">
-              <div class="w-2 h-2 rounded-full" style="background:#D4A000"/>
-              <span class="font-switzer font-medium text-[11px]" style="color:#92400E;">Mit Solar</span>
-            </div>
-            <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:#fff1f1; border:1px solid #fca5a5;">
-              <div class="w-2 h-2 rounded-full" style="background:#F87171"/>
-              <span class="font-switzer font-medium text-[11px]" style="color:#b91c1c;">Ohne Solar</span>
-            </div>
-          </div>
-        </div>
-        <!-- Chart -->
-        <svg viewBox="0 0 {LW} {LH}" class="w-full" style="overflow:visible; cursor:crosshair;"
-          on:mousemove={handleLineMove} on:mouseleave={() => lHoverYear=null}>
-          <defs>
-            <linearGradient id="gradSolar" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#FFE572" stop-opacity="0.5"/>
-              <stop offset="100%" stop-color="#FFE572" stop-opacity="0.01"/>
-            </linearGradient>
-            <linearGradient id="gradNoSolar" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#F87171" stop-opacity="0.15"/>
-              <stop offset="100%" stop-color="#F87171" stop-opacity="0.02"/>
-            </linearGradient>
-          </defs>
-          <!-- Grid -->
-          {#each lYLab as {val,y}}
-            <line x1={LP.l} y1={y} x2={LW-LP.r} y2={y} stroke="#f4f4f4" stroke-width="1"/>
-            <text x={LP.l-5} y={y+4} text-anchor="end" font-size="9" fill="#bbb" font-family="Switzer,sans-serif">
-              {fmt(val)}
-            </text>
-          {/each}
-          <!-- Fills -->
-          <path d={lFillN} fill="url(#gradNoSolar)"/>
-          <!-- Lines -->
-          <path d={lPathN} fill="none" stroke="#F87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
-          <path d={lPathS} fill="none" stroke="#D4A000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          <!-- Amortisation marker -->
-          {#if breakEvenYear>=0}
-            {@const beCalYear = new Date().getFullYear() + breakEvenYear}
-            <!-- Connector line vom Dot zum Badge oben -->
-            <line x1={lBEX} y1={lBEY - 8} x2={lBEX} y2={LP.t + 36} stroke="#ccc" stroke-width="1" stroke-dasharray="3 3" style="opacity:{lHoverYear===null?1:0}; transition:opacity 0.25s;"/>
-            <!-- Dot — prominent -->
-            <circle cx={lBEX} cy={lBEY} r="10" fill="white" fill-opacity="0.6"/>
-            <circle cx={lBEX} cy={lBEY} r="6" fill="white" stroke="#555" stroke-width="1.5"/>
-            <circle cx={lBEX} cy={lBEY} r="2.5" fill="#333"/>
-            <!-- Badge oben, über der Linie -->
-            {@const labelW2 = 100}
-            {@const labelX2 = Math.min(Math.max(lBEX - labelW2/2, LP.l), LW - LP.r - labelW2)}
-            <g style="opacity:{lHoverYear===null?1:0}; transition:opacity 0.25s ease;">
-              <rect x={labelX2} y={LP.t} width={labelW2} height="26" rx="13" fill="#222"/>
-              <text x={labelX2 + labelW2/2} y={LP.t + 10} text-anchor="middle" font-size="7.5" fill="rgba(255,255,255,0.45)" font-family="Switzer,sans-serif" letter-spacing="0.6">AMORTISIERT</text>
-              <text x={labelX2 + labelW2/2} y={LP.t + 21} text-anchor="middle" font-size="12" font-weight="700" fill="white" letter-spacing="-0.3" font-family="Switzer,sans-serif">Ab {beCalYear}</text>
-            </g>
-          {/if}
-          <!-- End-of-chart Gap Annotation -->
-          {#if cumWithSolar.length > 0 && cumWithoutSolar.length > 0}
-            {@const endS = cumWithSolar[cumWithSolar.length-1]}
-            {@const endN = cumWithoutSolar[cumWithoutSolar.length-1]}
-            {@const endX = lpx(installationLifeSpan-1)}
-            {@const endYS = lpy(endS)}
-            {@const endYN = lpy(endN)}
-            {@const gapMid = (endYS + endYN) / 2}
-            {#if endN - endS > 1000}
-              <line x1={endX-8} y1={endYS} x2={endX-8} y2={endYN} stroke="#ddd" stroke-width="1"/>
-              <line x1={endX-13} y1={endYS} x2={endX-3} y2={endYS} stroke="#ddd" stroke-width="1"/>
-              <line x1={endX-13} y1={endYN} x2={endX-3} y2={endYN} stroke="#ddd" stroke-width="1"/>
-              <text x={endX-14} y={gapMid-5} text-anchor="end" font-size="10" font-weight="600" fill="#555" font-family="Switzer,sans-serif">CHF {fmt(endN-endS)}</text>
-              <text x={endX-14} y={gapMid+8} text-anchor="end" font-size="9" fill="#aaa" font-family="Switzer,sans-serif">gespart</text>
-            {/if}
-          {/if}
-          <!-- X axis labels -->
-          <line x1={LP.l} y1={LP.t+lcH} x2={LW-LP.r} y2={LP.t+lcH} stroke="#eeeeee" stroke-width="1"/>
-          {#each lXLab as {year,x}}
-            <text x={x} y={LH-8} text-anchor="middle" font-size="9" fill="#bbb" font-family="Switzer,sans-serif">{year}</text>
-          {/each}
-          <!-- Hover crosshair + tooltip -->
-          {#if lHoverYear !== null}
-            {@const diff = lHoverValN - lHoverValS}
-            {@const tipW = 210}
-            {@const tipH = 96}
-            <line x1={lHoverX} y1={LP.t} x2={lHoverX} y2={LP.t+lcH} stroke="#030303" stroke-width="1" stroke-dasharray="4 3" opacity="0.15"/>
-            <circle cx={lHoverX} cy={lHoverYN} r="5" fill="white" stroke="#F87171" stroke-width="2.5"/>
-            <circle cx={lHoverX} cy={lHoverYS} r="5" fill="white" stroke="#D4A000" stroke-width="2.5"/>
-            <filter id="tipShadowL" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.28"/>
-            </filter>
-            <g class="tip-move" style="transform:translate({lTipX}px, {LP.t-4}px)">
-              <g class="tip-enter">
-                <!-- Tooltip box -->
-                <rect x="0" y="0" width={tipW} height={tipH} rx="14" fill="#0e0e0e" filter="url(#tipShadowL)"/>
-                <rect x="0" y="0" width={tipW} height={tipH} rx="14" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
-                <!-- Header -->
-                <text x="16" y="20" font-size="14" font-weight="700" fill="white" letter-spacing="-0.4" font-family="Switzer,sans-serif">{lHoverCalendarYear}</text>
-                <text x={tipW-16} y="20" text-anchor="end" font-size="11" fill="#666" font-family="Switzer,sans-serif">Jahr {lHoverYear}</text>
-                <!-- Divider -->
-                <line x1="16" y1="29" x2={tipW-16} y2="29" stroke="#252525" stroke-width="1"/>
-                <!-- Mit Solar -->
-                <circle cx="24" cy="44" r="4" fill="#D4A000"/>
-                <text x="34" y="48" font-size="12" fill="#666" font-family="Switzer,sans-serif">Mit Solar</text>
-                <text x={tipW-16} y="48" text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">CHF {fmt(lHoverValS)}</text>
-                <!-- Ohne Solar -->
-                <circle cx="24" cy="66" r="4" fill="#F87171"/>
-                <text x="34" y="70" font-size="12" fill="#666" font-family="Switzer,sans-serif">Ohne Solar</text>
-                <text x={tipW-16} y="70" text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">CHF {fmt(lHoverValN)}</text>
-              </g>
-            </g>
-          {/if}
-        </svg>
-      </div>
-
-    </div>
-
-    <!-- ══ Charts Row 2: 3 Cards ══ -->
-    <div class="grid grid-cols-3 gap-4">
-
-      <!-- ── Monatliche Einsparung: Mini bar chart ── -->
-      <div class="rounded-[16px] p-5 flex flex-col col-span-1" style="background:white; border:1px solid #ede8e0; gap:12px;">
-        <!-- Header -->
-        <div class="shrink-0">
-          <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none">Monatliche Einsparung</p>
-          <p class="font-switzer text-[12px] text-[#8C8C8C] mt-0.5">Im Vergleich zu ohne Solaranlage</p>
-        </div>
-
-        <!-- Chart -->
-        <svg viewBox="0 0 {MW} {MH}" class="w-full flex-1" style="overflow:visible; cursor:crosshair;"
-          on:mousemove={(e) => { const r=e.currentTarget.getBoundingClientRect(); const x=(e.clientX-r.left)*(MW/r.width); mHoverIdx=Math.max(0,Math.min(11,Math.floor(x/mStep))); }}
-          on:mouseleave={() => mHoverIdx=null}>
-          <defs>
-            <linearGradient id="gradMS" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#02B597" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#02B597" stop-opacity="0.35"/>
-            </linearGradient>
-            <filter id="mTipShadow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.22"/>
-            </filter>
-          </defs>
-
-          {#each monthlyData as d, i}
-            {@const active = mHoverIdx === null || mHoverIdx === i}
-            <!-- Saving bar -->
-            <rect x={mpx(i)} y={mScaledY(d.saving, mMaxCost)} width={mBW} height={mScaledH(d.saving, mMaxCost)}
-              fill="url(#gradMS)" rx="4"
-              opacity={active ? 1 : 0.3}
-              style="transition:opacity 0.2s;"/>
-            <!-- Month label -->
-            <text x={mpx(i)+mBW/2} y={MH-1} text-anchor="middle" font-size="10"
-              fill={active ? '#999' : '#ddd'} font-family="Switzer,sans-serif"
-              style="transition:fill 0.2s;">{d.label}</text>
-          {/each}
-
-          <!-- Hover tooltip -->
-          {#if mHoverIdx !== null}
-            {@const d = monthlyData[mHoverIdx]}
-            {@const tx = mpx(mHoverIdx)+mBW/2}
-            {@const tipW = 260}
-            {@const tipH = 122}
-            {@const tipX = Math.min(Math.max(tx - tipW/2, 0), MW - tipW)}
-            {@const tipY = -tipH + 4 + mScaledY(d.saving, mMaxCost) * 0.15}
-            {@const pctSaved = d.gridWithout > 0 ? Math.round((d.gridWithout - d.gridWith) / d.gridWithout * 100) : 0}
-            <g class="tip-enter">
-              <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="14" fill="#0e0e0e" filter="url(#mTipShadow)"/>
-              <rect x={tipX} y={tipY} width={tipW} height={tipH} rx="14" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
-              <!-- Header -->
-              <text x={tipX+16} y={tipY+20} font-size="14" font-weight="700" fill="white" letter-spacing="-0.4" font-family="Switzer,sans-serif">{MONTH_FULL[mHoverIdx]}</text>
-              <text x={tipX+tipW-16} y={tipY+20} text-anchor="end" font-size="11" fill="#666" font-family="Switzer,sans-serif">Strombezug aus dem Netz</text>
-              <line x1={tipX+16} y1={tipY+29} x2={tipX+tipW-16} y2={tipY+29} stroke="#252525" stroke-width="1"/>
-              <!-- Mit Solar -->
-              <circle cx={tipX+24} cy={tipY+44} r="4" fill="#02B597"/>
-              <text x={tipX+34} y={tipY+48} font-size="12" fill="#666" font-family="Switzer,sans-serif">Mit Solar</text>
-              <text x={tipX+tipW-16} y={tipY+48} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{fmt(d.gridWith)} kWh</text>
-              <!-- Ohne Solar -->
-              <circle cx={tipX+24} cy={tipY+66} r="4" fill="#555"/>
-              <text x={tipX+34} y={tipY+70} font-size="12" fill="#666" font-family="Switzer,sans-serif">Ohne Solar</text>
-              <text x={tipX+tipW-16} y={tipY+70} text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">{fmt(d.gridWithout)} kWh</text>
-              <!-- Pill -->
-              <rect x={tipX+16} y={tipY+82} width={tipW-32} height="26" rx="8" fill="rgba(255,208,0,0.12)"/>
-              <text x={tipX+tipW/2} y={tipY+99} text-anchor="middle" font-size="12" font-weight="700" fill="#FFD000" font-family="Switzer,sans-serif">↓ {pctSaved}% weniger vom Netz</text>
-            </g>
-          {/if}
-        </svg>
-
-        <!-- Bottom: value -->
-        <div class="pt-1 border-t border-[#f0ece6]">
-          <div class="flex items-baseline gap-2.5">
-            <p class="font-switzer font-semibold text-[34px] text-[#030303] leading-none tracking-[-1.5px]">
-              CHF {fmt(mHoverIdx !== null ? monthlyData[mHoverIdx].saving : avgMonthlySaving)}
-            </p>
-            <span class="font-switzer text-[12px] font-semibold text-[#02B597]">↓ gespart</span>
-          </div>
-          <p class="font-switzer text-[11px] text-[#8C8C8C] mt-1">
-            {mHoverIdx !== null ? MONTH_FULL[mHoverIdx] : 'Ø pro Monat'}
-          </p>
-        </div>
-      </div>
-
       <!-- ── Eigenverbrauch + Energieunabhängigkeit (combined) ── -->
-      <div class="rounded-[16px] p-6 flex flex-col gap-5 col-span-2" style="background:white; border:1px solid #ede8e0;">
+      <div class="rounded-[16px] p-6 flex flex-col gap-5 col-span-3" style="background:white; border:1px solid #ede8e0;">
 
         <!-- Header -->
         <div>
@@ -1733,6 +1570,243 @@
         </div><!-- /three-column layout -->
 
       </div><!-- /combined card -->
+
+    </div>
+
+    <!-- ══ Charts Row 2: 3 Cards ══ -->
+    <div class="grid grid-cols-3 gap-4">
+
+      <!-- ── Finanzierungsrechner ── -->
+      <div class="rounded-[16px] col-span-1 flex overflow-hidden" style="background:white; border:1px solid #ede8e0;">
+
+        <!-- Left: KPI + Controls -->
+        <div class="flex flex-col justify-between p-5 gap-5" style="width:46%; border-right:1px solid #f0ece6; min-width:0;">
+
+          <!-- Top: title + KPI -->
+          <div class="flex flex-col gap-5">
+            <!-- Title + toggle -->
+            <div>
+              <p class="font-switzer font-semibold text-[17px] text-[#030303] leading-none mb-0.5">Finanzierung</p>
+              <p class="font-switzer text-[12px] text-[#B0A89E]">nach Monatsrate</p>
+              <div class="flex gap-1 mt-2">
+                {#each loanTypeOptions as t}
+                  <button class="font-switzer text-[12px] font-medium rounded-full px-3 py-1 transition-all duration-150"
+                    style="background:{loanType === t.k ? '#f0ece6' : 'transparent'}; color:{loanType === t.k ? '#030303' : '#C0B8B0'}; border:1px solid {loanType === t.k ? '#ddd6cc' : 'transparent'}; cursor:pointer;"
+                    on:click={() => setLoanType(t.k)}
+                  >{t.l}</button>
+                {/each}
+              </div>
+            </div>
+
+            <!-- KPI number -->
+            <div>
+              <p class="font-switzer text-[10px] text-[#B0A89E] uppercase tracking-widest mb-1">
+                {mHoverIdx !== null ? MONTH_FULL[mHoverIdx] : 'Ø Monat'}
+              </p>
+              <p class="font-switzer font-semibold leading-none tracking-[-2px] text-[#030303]" style="font-size:clamp(26px,3.5vw,36px);">
+                {hoverNet >= 0 ? '+' : '−'}CHF {fmt(Math.abs(hoverNet))}
+              </p>
+              <span class="font-switzer text-[12px] font-semibold mt-1 inline-block" style="color:{hoverNet >= 0 ? '#02B597' : '#C0A898'};">
+                {hoverNet >= 0 ? '↑ Einsparung' : '↓ Investition'}
+              </span>
+              <div class="flex flex-col gap-1.5 mt-3">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-[5px] h-[5px] rounded-full shrink-0" style="background:#02B597;"/>
+                    <span class="font-switzer text-[11px] text-[#8C8C8C]">Strom gespart</span>
+                  </div>
+                  <span class="font-switzer text-[11px] font-semibold text-[#02B597]">+CHF {fmt(hoverSaving)}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-[5px] h-[5px] rounded-full shrink-0" style="background:#D4CEC8;"/>
+                    <span class="font-switzer text-[11px] text-[#8C8C8C]">Monatsrate</span>
+                  </div>
+                  <span class="font-switzer text-[11px] font-semibold text-[#8C8C8C]">−CHF {fmt(monthlyPayment)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom: sliders -->
+          <div class="flex flex-col gap-2.5 pt-4 border-t border-[#f4f0eb]">
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="font-switzer text-[10px] uppercase tracking-widest text-[#C0B8B0]">Zinssatz</span>
+                <span class="font-switzer text-[12px] font-semibold text-[#030303]">{loanRate}%</span>
+              </div>
+              <input type="range" min={RATE_MIN} max={RATE_MAX} step="0.25" bind:value={loanRate}
+                class="w-full h-[2px] rounded-full appearance-none cursor-pointer"
+                style="background:linear-gradient(to right, #030303 {rateFillPct}%, #e5e1db {rateFillPct}%); accent-color:#030303;"/>
+            </div>
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="font-switzer text-[10px] uppercase tracking-widest text-[#C0B8B0]">Laufzeit</span>
+                <span class="font-switzer text-[12px] font-semibold text-[#030303]">{loanYears}J</span>
+              </div>
+              <input type="range" min={YEAR_MIN} max={YEAR_MAX} step="1" bind:value={loanYears}
+                class="w-full h-[2px] rounded-full appearance-none cursor-pointer"
+                style="background:linear-gradient(to right, #030303 {yearFillPct}%, #e5e1db {yearFillPct}%); accent-color:#030303;"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Bar chart -->
+        <div class="flex-1 flex flex-col p-4" style="background:#FAFAF8; min-width:0;">
+          <div class="flex-1 relative flex items-end" style="gap:3px; min-height:0;">
+            <!-- Payment reference line -->
+            <div class="absolute left-0 right-0 pointer-events-none flex items-center gap-1"
+              style="bottom:{paymentLinePct}%;">
+              <div class="flex-1" style="border-top:1px dashed rgba(180,170,160,0.5);"/>
+            </div>
+            <!-- Bars -->
+            {#each monthlyData as d, i}
+              {@const hPct = mMaxCost > 0 ? Math.round((d.saving / mMaxCost) * 75) : 0}
+              {@const covers = d.saving >= monthlyPayment}
+              {@const isActive = mHoverIdx === null || mHoverIdx === i}
+              <div class="flex-1 flex flex-col justify-end cursor-pointer" role="presentation"
+                style="height:100%;"
+                on:mouseenter={() => mHoverIdx = i}
+                on:mouseleave={() => mHoverIdx = null}
+              >
+                <div class="w-full transition-all duration-200"
+                  style="height:{hPct}%; border-radius:4px 4px 0 0; opacity:{isActive ? 1 : 0.15}; background:{covers
+                    ? 'linear-gradient(to bottom, #02B597 0%, rgba(2,181,151,0.12) 100%)'
+                    : 'linear-gradient(to bottom, rgba(180,168,156,0.7) 0%, rgba(180,168,156,0.05) 100%)'};"
+                />
+              </div>
+            {/each}
+          </div>
+          <!-- Month labels -->
+          <div class="flex mt-2" style="gap:3px;">
+            {#each monthlyData as d, i}
+              <div class="flex-1 text-center font-switzer transition-all duration-150"
+                style="font-size:8px; color:{mHoverIdx === i ? '#030303' : '#C8C2BC'}; font-weight:{mHoverIdx === i ? 700 : 400};">
+                {d.label}
+              </div>
+            {/each}
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Line chart: Kostenvergleich ── -->
+      <div class="col-span-2 rounded-[16px] p-6 flex flex-col gap-5" style="background:white; border:1px solid #ede8e0;">
+        <!-- Header -->
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-switzer font-semibold text-[17px] text-[#030303] tracking-[-0.4px]">Kostenvergleich</h3>
+            <p class="font-switzer text-[12px] text-[#8C8C8C] mt-0.5">Kumulierte Stromkosten über {installationLifeSpan} Jahre</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:rgba(2,181,151,0.08); border:1px solid rgba(2,181,151,0.3);">
+              <div class="w-2 h-2 rounded-full" style="background:#02B597"/>
+              <span class="font-switzer font-semibold text-[11px]" style="color:#047857;">Mit Solar</span>
+            </div>
+            <div class="flex items-center gap-1.5 rounded-full px-3 py-1" style="background:#fff1f1; border:1px solid #fca5a5;">
+              <div class="w-2 h-2 rounded-full" style="background:#F87171"/>
+              <span class="font-switzer font-semibold text-[11px]" style="color:#b91c1c;">Ohne Solar</span>
+            </div>
+          </div>
+        </div>
+        <!-- Chart -->
+        <svg viewBox="0 0 {LW} {LH}" class="w-full" style="overflow:visible; cursor:crosshair;"
+          on:mousemove={handleLineMove} on:mouseleave={() => lHoverYear=null}>
+          <defs>
+            <linearGradient id="gradSolar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#FFE572" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="#FFE572" stop-opacity="0.01"/>
+            </linearGradient>
+            <linearGradient id="gradNoSolar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#F87171" stop-opacity="0.15"/>
+              <stop offset="100%" stop-color="#F87171" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          <!-- Grid -->
+          {#each lYLab as {val,y}}
+            <line x1={LP.l} y1={y} x2={LW-LP.r} y2={y} stroke="#f4f4f4" stroke-width="1"/>
+            <text x={LP.l-5} y={y+4} text-anchor="end" font-size="10" fill="#bbb" font-family="Switzer,sans-serif">
+              {fmt(val)}
+            </text>
+          {/each}
+          <!-- Fills -->
+          <path d={lFillN} fill="url(#gradNoSolar)"/>
+          <!-- Lines -->
+          <path d={lPathN} fill="none" stroke="#F87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+          <path d={lPathS} fill="none" stroke="#02B597" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Amortisation marker -->
+          {#if breakEvenYear>=0}
+            {@const beCalYear = new Date().getFullYear() + breakEvenYear}
+            <!-- Connector line vom Dot zum Badge oben -->
+            <line x1={lBEX} y1={lBEY - 8} x2={lBEX} y2={LP.t + 36} stroke="#ccc" stroke-width="1" stroke-dasharray="3 3" style="opacity:{lHoverYear===null?1:0}; transition:opacity 0.25s;"/>
+            <!-- Dot — prominent -->
+            <circle cx={lBEX} cy={lBEY} r="6" fill="white" stroke="#555" stroke-width="1.5"/>
+            <circle cx={lBEX} cy={lBEY} r="2.5" fill="#333"/>
+            <!-- Badge oben, über der Linie -->
+            {@const labelW2 = 100}
+            {@const labelX2 = Math.min(Math.max(lBEX - labelW2/2, LP.l), LW - LP.r - labelW2)}
+            <g style="opacity:{lHoverYear===null?1:0}; transition:opacity 0.25s ease;">
+              <rect x={labelX2} y={LP.t} width={labelW2} height="26" rx="13" fill="#222"/>
+              <text x={labelX2 + labelW2/2} y={LP.t + 10} text-anchor="middle" font-size="7.5" fill="rgba(255,255,255,0.45)" font-family="Switzer,sans-serif" letter-spacing="0.6">AMORTISIERT</text>
+              <text x={labelX2 + labelW2/2} y={LP.t + 21} text-anchor="middle" font-size="12" font-weight="700" fill="white" letter-spacing="-0.3" font-family="Switzer,sans-serif">Ab {beCalYear}</text>
+            </g>
+          {/if}
+          <!-- End-of-chart Gap Annotation -->
+          {#if cumWithSolar.length > 0 && cumWithoutSolar.length > 0}
+            {@const endS = cumWithSolar[cumWithSolar.length-1]}
+            {@const endN = cumWithoutSolar[cumWithoutSolar.length-1]}
+            {@const endX = lpx(installationLifeSpan-1)}
+            {@const endYS = lpy(endS)}
+            {@const endYN = lpy(endN)}
+            {@const gapMid = (endYS + endYN) / 2}
+            {#if endN - endS > 1000}
+              <line x1={endX-8} y1={endYS} x2={endX-8} y2={endYN} stroke="#ddd" stroke-width="1"/>
+              <line x1={endX-13} y1={endYS} x2={endX-3} y2={endYS} stroke="#ddd" stroke-width="1"/>
+              <line x1={endX-13} y1={endYN} x2={endX-3} y2={endYN} stroke="#ddd" stroke-width="1"/>
+              <text x={endX-14} y={gapMid-5} text-anchor="end" font-size="11" font-weight="600" fill="#555" font-family="Switzer,sans-serif">CHF {fmt(endN-endS)}</text>
+              <text x={endX-14} y={gapMid+8} text-anchor="end" font-size="10" fill="#aaa" font-family="Switzer,sans-serif">gespart</text>
+            {/if}
+          {/if}
+          <!-- X axis labels -->
+          <line x1={LP.l} y1={LP.t+lcH} x2={LW-LP.r} y2={LP.t+lcH} stroke="#eeeeee" stroke-width="1"/>
+          {#each lXLab as {year,x}}
+            <text x={x} y={LH-8} text-anchor="middle" font-size="10" fill="#bbb" font-family="Switzer,sans-serif">{year}</text>
+          {/each}
+          <!-- Hover crosshair + tooltip -->
+          {#if lHoverYear !== null}
+            {@const diff = lHoverValN - lHoverValS}
+            {@const tipW = 210}
+            {@const tipH = 96}
+            <line x1={lHoverX} y1={LP.t} x2={lHoverX} y2={LP.t+lcH} stroke="#030303" stroke-width="1" stroke-dasharray="4 3" opacity="0.15"/>
+            {#if !lHoverNearBE}
+              <circle cx={lHoverX} cy={lHoverYN} r="5" fill="white" stroke="#F87171" stroke-width="2.5"/>
+              <circle cx={lHoverX} cy={lHoverYS} r="5" fill="white" stroke="#02B597" stroke-width="2.5"/>
+            {/if}
+            <filter id="tipShadowL" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.28"/>
+            </filter>
+            <g class="tip-move" style="transform:translate({lTipX}px, {LP.t-4}px)">
+              <g class="tip-enter">
+                <!-- Tooltip box -->
+                <rect x="0" y="0" width={tipW} height={tipH} rx="14" fill="#0e0e0e" filter="url(#tipShadowL)"/>
+                <rect x="0" y="0" width={tipW} height={tipH} rx="14" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
+                <!-- Header -->
+                <text x="16" y="20" font-size="14" font-weight="700" fill="white" letter-spacing="-0.4" font-family="Switzer,sans-serif">{lHoverCalendarYear}</text>
+                <text x={tipW-16} y="20" text-anchor="end" font-size="11" fill="#666" font-family="Switzer,sans-serif">Jahr {lHoverYear}</text>
+                <!-- Divider -->
+                <line x1="16" y1="29" x2={tipW-16} y2="29" stroke="#252525" stroke-width="1"/>
+                <!-- Mit Solar -->
+                <circle cx="24" cy="44" r="4" fill="#02B597"/>
+                <text x="34" y="48" font-size="12" fill="#666" font-family="Switzer,sans-serif">Mit Solar</text>
+                <text x={tipW-16} y="48" text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">CHF {fmt(lHoverValS)}</text>
+                <!-- Ohne Solar -->
+                <circle cx="24" cy="66" r="4" fill="#F87171"/>
+                <text x="34" y="70" font-size="12" fill="#666" font-family="Switzer,sans-serif">Ohne Solar</text>
+                <text x={tipW-16} y="70" text-anchor="end" font-size="13" font-weight="700" fill="white" font-family="Switzer,sans-serif">CHF {fmt(lHoverValN)}</text>
+              </g>
+            </g>
+          {/if}
+        </svg>
+      </div>
 
       <!-- ── KPI: Installationsdauer ── -->
       <div class="col-span-2 w-full rounded-[16px] px-6 py-5 flex flex-col justify-between" style="background:white; border:1px solid #ede8e0;">
